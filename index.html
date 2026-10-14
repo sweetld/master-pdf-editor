@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Master PDF Editor</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="css/app.css">
+<script src="vendor/pdf-lib.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div id="menubar" role="menubar"></div>
+  <div id="toolbars"></div>
+  <div id="doctabs"></div>
+  <div id="main">
+    <div id="navtabs"></div>
+    <div id="navpanel"><div id="navpanel-body"></div></div>
+    <div id="navsplit" class="splitter"></div>
+    <div id="center">
+      <div id="popup-messages"></div>
+      <div id="docview" tabindex="0">
+        <div id="welcome">
+          <div class="welcome-logo"></div>
+          <div class="welcome-title">Master PDF Editor</div>
+          <div class="welcome-actions">
+            <button data-action="file.open">Open…</button>
+            <button data-action="file.newBlank">New Blank PDF</button>
+            <button data-action="file.newFromFiles">New From Files…</button>
+          </div>
+          <div class="welcome-recent" id="welcome-recent"></div>
+          <div class="welcome-hint">Drop PDF files here to open them</div>
+        </div>
+        <div id="pages"></div>
+      </div>
+    </div>
+    <div id="inspsplit" class="splitter"></div>
+    <div id="inspector"><div id="inspector-title">Object Inspector</div><div id="inspector-body"></div></div>
+    <div id="inspectortabs"></div>
+  </div>
+  <div id="statusbar"><span id="status-left"></span><span id="status-hint"></span></div>
+  <div id="menu-layer"></div>
+  <div id="dialog-layer"></div>
+  <div id="tooltip"></div>
+</div>
+<input type="file" id="file-input" multiple accept=".pdf,.fdf,.xfdf,.xps,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.gif,.txt" hidden>
+<input type="file" id="image-input" accept="image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp" hidden>
+<input type="file" id="any-input" hidden>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

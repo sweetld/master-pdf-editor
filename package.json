@@ -1,0 +1,21 @@
+{
+  "name": "master-pdf-editor-replica",
+  "version": "1.0.0",
+  "main": "electron-main.cjs",
+  "scripts": {
+    "start": "python3 serve.py 8765",
+    "serve": "python3 serve.py 8765",
+    "desktop": "electron .",
+    "vendor": "node scripts/vendor.mjs",
+    "sample": "node samples/make-sample.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "description": "A from-scratch web re-implementation of the Master PDF Editor workspace (pdf.js + pdf-lib).",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "private": true
+}

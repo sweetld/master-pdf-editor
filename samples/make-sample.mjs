@@ -1,0 +1,33 @@
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from 'pdf-lib';
+import { writeFileSync } from 'fs';
+const doc = await PDFDocument.create();
+const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.TimesRomanBold);
+doc.setTitle('Sample document'); doc.setAuthor('Replica test');
+const p1 = doc.addPage([595.28, 841.89]);
+p1.drawText('Master PDF Editor', { x: 150, y: 700, size: 28, font: bold });
+p1.drawText('Version 5.9 — User Manual', { x: 200, y: 670, size: 14, font });
+p1.drawText('This is a sample document used to exercise the editor. It has three pages,', { x: 72, y: 600, size: 11, font });
+p1.drawText('a form field, an annotation, an outline and a vector shape.', { x: 72, y: 585, size: 11, font });
+p1.drawRectangle({ x: 72, y: 400, width: 200, height: 120, borderColor: rgb(0.2, 0.4, 0.8), borderWidth: 2, color: rgb(0.9, 0.95, 1) });
+p1.drawEllipse({ x: 400, y: 460, xScale: 80, yScale: 50, color: rgb(1, 0.85, 0.4) });
+const form = doc.getForm(); const tf = form.createTextField('name'); tf.setText('Jane Doe'); tf.addToPage(p1, { x: 72, y: 300, width: 200, height: 24, font });
+const cb = form.createCheckBox('agree'); cb.check(); cb.addToPage(p1, { x: 72, y: 260, width: 16, height: 16 });
+const dd = form.createDropdown('colour'); dd.addOptions(['Red', 'Green', 'Blue']); dd.select('Green'); dd.addToPage(p1, { x: 300, y: 300, width: 120, height: 24, font });
+const p2 = doc.addPage([595.28, 841.89]);
+p2.drawText('Chapter 2 — Contents', { x: 72, y: 760, size: 20, font: bold });
+for (let i = 0; i < 25; i++) p2.drawText(`Section 2.${i + 1} ........................................................ ${10 + i}`, { x: 72, y: 720 - i * 18, size: 11, font });
+const p3 = doc.addPage([841.89, 595.28]);
+p3.drawText('Landscape page 3', { x: 72, y: 520, size: 20, font: bold }); p3.drawLine({ start: { x: 72, y: 500 }, end: { x: 760, y: 500 }, thickness: 1.5, color: rgb(0.5, 0, 0) });
+// a sticky note annotation and a square annotation on page 2
+const ctx = doc.context;
+const note = ctx.obj({ Type: 'Annot', Subtype: 'Text', Rect: [480, 740, 500, 760], Contents: PDFString.of('Please review this chapter.'), T: PDFString.of('Reviewer'), C: [1, 0.9, 0], Name: 'Comment', F: 4, Open: false });
+const sq = ctx.obj({ Type: 'Annot', Subtype: 'Square', Rect: [60, 480, 420, 530], C: [1, 0, 0], IC: [1, 1, 0.8], CA: 0.6, BS: { W: 2 }, T: PDFString.of('Reviewer'), Contents: PDFString.of('Highlighted block'), F: 4 });
+p2.node.set(PDFName.of('Annots'), ctx.obj([ctx.register(note), ctx.register(sq)]));
+// outline
+const pages = doc.getPages(); const o1 = ctx.nextRef(), o2 = ctx.nextRef(), o3 = ctx.nextRef(), root = ctx.nextRef();
+ctx.assign(o1, ctx.obj({ Title: PDFString.of('Title page'), Parent: root, Next: o2, Dest: [pages[0].ref, 'XYZ', null, 841, 0] }));
+ctx.assign(o2, ctx.obj({ Title: PDFString.of('Chapter 2'), Parent: root, Prev: o1, Next: o3, Dest: [pages[1].ref, 'XYZ', null, 841, 0] }));
+ctx.assign(o3, ctx.obj({ Title: PDFString.of('Landscape page'), Parent: root, Prev: o2, Dest: [pages[2].ref, 'Fit'] }));
+ctx.assign(root, ctx.obj({ Type: 'Outlines', First: o1, Last: o3, Count: 3 })); doc.catalog.set(PDFName.of('Outlines'), root);
+writeFileSync(new URL('./sample.pdf', import.meta.url), await doc.save({ useObjectStreams: false }));
+console.log('sample written');
