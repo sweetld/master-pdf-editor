@@ -7,3 +7,6 @@ cpSync('node_modules/pdf-lib/dist/pdf-lib.min.js', 'vendor/pdf-lib.min.js');
 cpSync('node_modules/pdfjs-dist/cmaps', 'vendor/cmaps', { recursive: true });
 cpSync('node_modules/pdfjs-dist/standard_fonts', 'vendor/standard_fonts', { recursive: true });
 console.log('vendor/ updated');
+mkdirSync('vendor/mupdf', { recursive: true });
+for (const f of ['mupdf.js', 'mupdf-wasm.js', 'mupdf-wasm.wasm']) cpSync('node_modules/mupdf/dist/' + f, 'vendor/mupdf/' + f);
+console.log('vendor/mupdf updated');

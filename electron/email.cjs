@@ -1,0 +1,10 @@
+// Compose an email with the document attached using the platform's mail client.
+const { execFile } = require('child_process'); const { shell } = require('electron');
+const run = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true }, (err, stdout, stderr) => res({ err, stdout, stderr })));
+async function send({ to = '', subject = '', body = '', attachment }) {
+  if (process.platform === 'linux') { const r = await run('xdg-email', [...(subject ? ['--subject', subject] : []), ...(body ? ['--body', body] : []), ...(attachment ? ['--attach', attachment] : []), ...(to ? [to] : [])]); if (!r.err) return { ok: true, method: 'xdg-email' }; }
+  if (process.platform === 'darwin') { const esc = s => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); const script = `tell application "Mail"\nset m to make new outgoing message with properties {subject:"${esc(subject)}", content:"${esc(body)}\n", visible:true}\n${to ? `tell m to make new to recipient at end of to recipients with properties {address:"${esc(to)}"}\n` : ''}${attachment ? `tell m to make new attachment with properties {file name:POSIX file "${esc(attachment)}"} at after the last paragraph\n` : ''}activate\nend tell`; const r = await run('osascript', ['-e', script]); if (!r.err) return { ok: true, method: 'Mail' }; }
+  if (process.platform === 'win32') { const esc = s => String(s).replace(/'/g, "''"); const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `$o = New-Object -ComObject Outlook.Application; $m = $o.CreateItem(0); $m.Subject = '${esc(subject)}'; $m.Body = '${esc(body)}'; ${to ? `$m.To = '${esc(to)}';` : ''} ${attachment ? `$m.Attachments.Add('${esc(attachment)}') | Out-Null;` : ''} $m.Display()`]); if (!r.err) return { ok: true, method: 'Outlook' }; }
+  await shell.openExternal(`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`); if (attachment) shell.showItemInFolder(attachment); return { ok: true, method: 'mailto', attached: false };
+}
+module.exports = { send };

@@ -1,17 +1,28 @@
 # Master PDF Editor — replica
 
-A from-scratch re-implementation of the [Master PDF Editor](https://code-industry.net/masterpdfeditor/) workspace that runs in a browser (or in Electron). It reproduces the application's layout — main menu, the Main / Edit / View / Zoom / Find / Tools / Forms / Objects / Comments / Redaction toolbars, the Navigation Panel (Pages, Bookmarks, Attachments, Search, Object TreeView, Signatures, Layers, Comments), document tabs, pop-up notices, the Object Inspector and the status bar — and the functions behind every menu item.
+A from-scratch desktop re-implementation of the [Master PDF Editor](https://code-industry.net/masterpdfeditor/) workspace for Windows 10+, macOS and Linux (Electron), which also runs in a browser. It reproduces the application's layout — main menu, the Main / Edit / View / Zoom / Find / Tools / Forms / Objects / Comments / Redaction toolbars, the Navigation Panel (Pages, Bookmarks, Attachments, Search, Object TreeView, Signatures, Layers, Comments), document tabs, pop-up notices, the Object Inspector and the status bar — and the functions behind every menu item.
 
-Rendering is done by **pdf.js**, writing by **pdf-lib**; password security (RC4 40/128-bit, AES-128, AES-256) is implemented in `js/security.js` because pdf-lib has none. No build step: plain ES modules.
+Rendering is done by **pdf.js**, writing by **pdf-lib**, and **MuPDF** (WASM) does what pdf-lib cannot: removing original page content, true redaction, decrypting and encrypting (RC4 40/128, AES-128, AES-256) and compacting with object streams. Digital signatures are real PKCS#7 signatures made with **node-forge**. No build step: plain ES modules, the same files on every platform, so the UI is pixel-identical.
 
 ## Run
 
 ```bash
-npm install && npm run vendor   # once: copies pdf.js / pdf-lib into vendor/
-npm start                       # http://127.0.0.1:8765/
+npm install && npm run vendor   # once: copies pdf.js, pdf-lib and MuPDF into vendor/
+npm start                       # desktop window (Electron)
+npm run smoke                   # headless self-test, prints a JSON report
+npm run web                     # browser mode on http://127.0.0.1:8765/ (fewer features)
 ```
 
-`?open=samples/sample.pdf` opens a file on load. In Chromium browsers the File System Access API is used, so **Save** writes back to the opened file and Recent Files reopen; elsewhere files are downloaded. For a desktop window: `npm i -D electron && npm run desktop`.
+Pass a PDF path on the command line to open it; drag files onto the window; the recent list reopens files by path.
+
+## Package
+
+```bash
+npm run package                 # dist/<name>-linux-x64, -win32-x64, -darwin-x64, -darwin-arm64
+npm run package:linux           # one platform at a time
+```
+
+Each `dist/…` folder is a complete, runnable application (copy it over, run `master-pdf-editor`, `Master PDF Editor.exe` or `Master PDF Editor.app`). Nothing is signed, so Windows SmartScreen and macOS Gatekeeper show a warning the first time (right-click → Open on macOS). The Windows build gets its exe icon only when packaged with Wine present.
 
 `npm run sample` regenerates `samples/sample.pdf` (text, shapes, form fields, comments, outline).
 
@@ -33,10 +44,21 @@ All keyboard shortcuts from the manual's Hotkeys page are bound (Ctrl+N/O/S/P/D/
 
 Existing comments and form fields are read from the file and are editable; saving rewrites them as real PDF annotations (with appearance streams), AcroForm fields, outlines, attachments, document JavaScript and metadata, so other viewers see the result.
 
+## Desktop features
+
+* **Editing original content**: deleted or replaced text, images and vector objects are removed from the page content by MuPDF on save (not covered). While editing, the replacement is previewed over a page-coloured box; after Save the document is reloaded from the written file, so what you see is what is in the file.
+* **Redaction** removes the text, image pixels and line art under the marks (Document → Redaction → Apply), with page rasterising still available as an alternative.
+* **Encryption** of any document, including ones that use object streams; password-protected files are edited after entering the user or owner password.
+* **Digital signatures**: Tools → Certificate Manager creates self-signed digital IDs (2048-bit RSA, stored as password-protected .p12 in the app data folder) or imports .p12/.pfx files; Forms → Signature signs (visible or invisible, with reason/location/contact, optional form lock); the Signatures panel's Validate checks every signature's integrity.
+* **From Scanner**: SANE (`scanimage`) on Linux and macOS (`brew install sane-backends`), Windows Image Acquisition on Windows. Multi-page, resolution and colour mode, into a new document or the current one.
+* **Email** composes a message with the file attached through xdg-email (Linux), Mail (macOS) or Outlook (Windows), falling back to mailto plus showing the file.
+* Native open/save dialogs, saving in place, backup copies (Settings → System), print through the OS print dialog, snapshots to the clipboard.
+
 ## Limitations (honest list)
 
-* **Editing original page content** (text, images, vectors) works by covering the original with a page-coloured box and drawing the replacement; the old content stays in the file underneath. *Apply Redactions* therefore offers to rasterise the affected pages, which removes it for good.
 * Edited original text is re-set in the closest standard font (Helvetica/Times/Courier families); the original embedded font is not reused.
-* Items marked `*` have no engine in the browser: **OCR** and **From Scanner** show what they would need. **Email** opens the mail client but cannot attach. **Digital signatures** record the appearance and signer metadata only — no PKCS#7 signature is computed. **Convert to PDF/A** tags the file but does not validate conformance.
-* Encrypted documents that use object streams cannot be rewritten (pdf-lib cannot parse them); they can still be viewed.
+* **OCR** is not bundled (no engine was wanted); the menu item explains this. **Convert to PDF/A** tags the file but does not validate conformance. There is no virtual PDF printer (that needs a signed printer driver on Windows).
+* Adding a second signature rewrites the file, which invalidates earlier signatures (incremental updates are not implemented). Self-signed IDs are not chained to a certificate authority, so other viewers show them as untrusted.
+* The Windows and macOS scanner and email paths were written against the platform APIs but tested only on Linux.
 * Layers (optional content) can be toggled but not created.
+* In browser mode: no scanner, no cryptographic signatures, no attachments in email, and files are downloaded unless the browser offers the File System Access API.

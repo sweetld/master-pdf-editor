@@ -1,21 +1,32 @@
 {
   "name": "master-pdf-editor-replica",
   "version": "1.0.0",
-  "main": "electron-main.cjs",
+  "main": "electron/main.cjs",
   "scripts": {
-    "start": "python3 serve.py 8765",
-    "serve": "python3 serve.py 8765",
-    "desktop": "electron .",
+    "start": "electron .",
+    "dev": "electron . --devtools",
+    "smoke": "electron . --smoke --no-sandbox",
+    "web": "python3 serve.py 8765",
     "vendor": "node scripts/vendor.mjs",
-    "sample": "node samples/make-sample.mjs"
+    "sample": "node samples/make-sample.mjs",
+    "package": "node scripts/package.mjs all",
+    "package:linux": "node scripts/package.mjs linux",
+    "package:win": "node scripts/package.mjs win32",
+    "package:mac": "node scripts/package.mjs darwin"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
-  "description": "A from-scratch web re-implementation of the Master PDF Editor workspace (pdf.js + pdf-lib).",
+  "description": "A from-scratch desktop re-implementation of the Master PDF Editor workspace (Electron, pdf.js, pdf-lib, MuPDF).",
   "dependencies": {
+    "mupdf": "^1.28.1",
+    "node-forge": "^1.4.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "electron": "^41.7.1"
+  }
 }

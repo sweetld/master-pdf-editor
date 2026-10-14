@@ -1,6 +1,7 @@
 import { PdfDoc, PageModel, pdfjsLib } from './model.js';
 import { hexToRgb, rectNorm, bboxOfPoints, base64ToBytes, uid, settings, PAGE_SIZES } from './util.js';
 import { encryptPdf, decryptPdf, concat } from './security.js';
+import * as mu from './mupdf-bridge.js';
 const L = PDFLib;
 const { PDFDocument, PDFName, PDFDict, PDFArray, PDFString, PDFHexString, PDFNumber, PDFRef, PDFBool, StandardFonts, rgb, degrees, TextAlignment, PDFRawStream } = L;
 const col = hex => { const c = hexToRgb(hex); return c ? rgb(c[0], c[1], c[2]) : undefined; };
@@ -10,10 +11,20 @@ const pdfDate = iso => { const d = new Date(iso || Date.now()); const p = n => S
 // ---------- loading / saving ----------
 export async function libLoad(doc, bytes = doc.bytes) {
   if (doc.encrypted || doc.password) {
+    if (await mu.available()) { try { const r = await mu.decrypt(bytes, doc.password || ''); doc.security = { method: r.method, permissions: r.permissions, isOwner: r.isOwner, description: r.description }; doc.plainBytes = r.bytes; return PDFDocument.load(r.bytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false }); } catch (e) { if (e.name === 'PasswordException') throw new Error('The document is encrypted and the password does not allow editing.'); console.warn('mupdf decrypt failed, trying built-in handler', e); } }
     try { const r = await decryptPdf(bytes, doc.password || ''); doc.security = { method: r.method, permissions: r.permissions, isOwner: r.isOwner }; return r.doc; }
     catch (e) { if (e.name === 'PasswordException') throw new Error('The document is encrypted and the password does not allow editing.'); throw e; }
   }
   return PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+}
+/** Converts a user-space rect of a page to MuPDF page space (origin top-left of the displayed page). */
+export function toMuRect(pm, rect) { const vp = pm.pdfPage.getViewport({ scale: 1 }); const pts = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]]].map(([x, y]) => vp.convertToViewportPoint(x, y)); return bboxOfPoints(pts); }
+/** Removes the original content behind deleted or replaced original objects, returning new base bytes (or null if nothing to do). */
+export async function removeReplacedContent(doc, { pad = 0.5 } = {}) {
+  const jobs = []; for (const pm of doc.pages) { const rects = []; for (const it of pm.items) { if (it.kind === 'object' && it.orig && (it.deleted || it.origModified)) { const r = rectNorm(it.origRect || it.rect); rects.push(toMuRect(pm, [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad])); } } if (rects.length) jobs.push({ pageIndex: pm.index, rects }); }
+  if (!jobs.length || !(await mu.available())) return null;
+  let base = doc.bytes; if (doc.encrypted || doc.password) { const r = await mu.decrypt(base, doc.password || ''); base = r.bytes; }
+  return mu.removeContent(base, jobs);
 }
 export const libSave = (pdfDoc, opts = {}) => pdfDoc.save({ useObjectStreams: false, updateFieldAppearances: true, ...opts });
 
@@ -229,15 +240,16 @@ export function writeMetadata(pdfDoc, doc) {
 }
 
 // ---------- the main bake ----------
-export async function bake(doc, { flattenAnnots = false, includeAnnots = true, includeFields = true } = {}) {
-  const pdfDoc = await libLoad(doc); const pages = pdfDoc.getPages();
+export async function bake(doc, { flattenAnnots = false, includeAnnots = true, includeFields = true, trueEdit = true } = {}) {
+  let cleaned = null; if (trueEdit) { try { cleaned = await removeReplacedContent(doc); } catch (e) { console.warn('content removal failed, covering instead', e); } }
+  const pdfDoc = cleaned ? await PDFDocument.load(cleaned, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false }) : await libLoad(doc); const pages = pdfDoc.getPages(); const covers = !cleaned;
   for (let i = 0; i < doc.pages.length && i < pages.length; i++) {
     const pm = doc.pages[i], page = pages[i];
     const objects = pm.items.filter(it => it.kind === 'object'); const annots = pm.items.filter(it => it.kind === 'annot');
     let wrapped = false; const ensureWrap = () => { if (!wrapped) { wrapContentInGraphicsState(pdfDoc, page); wrapped = true; } };
     for (const it of objects) {
       const needsCover = it.orig && (it.deleted || it.origModified); const isNew = !it.orig;
-      if (needsCover) { ensureWrap(); const { ops, res } = await drawObjectOps(pdfDoc, { ...it, type: 'cover', rotation: 0, rect: it.origRect || it.rect, props: { fillColor: settings.editing.textCover } }, pm); page.pushOperators(...ops); addResources(page, res); }
+      if (needsCover && covers) { ensureWrap(); const { ops, res } = await drawObjectOps(pdfDoc, { ...it, type: 'cover', rotation: 0, rect: it.origRect || it.rect, props: { fillColor: settings.editing.textCover } }, pm); page.pushOperators(...ops); addResources(page, res); }
       if (it.deleted) continue;
       if (isNew || needsCover) { ensureWrap(); const draw = { ...it }; if (it.orig === 'text') draw.type = 'text'; if (it.orig === 'image' || it.orig === 'vector') { if (it.orig === 'image' && it.props.imageData) draw.type = 'image'; else continue; } const { ops, res } = await drawObjectOps(pdfDoc, draw, pm); page.pushOperators(...ops); addResources(page, res); }
     }
@@ -258,9 +270,18 @@ export async function bake(doc, { flattenAnnots = false, includeAnnots = true, i
   return pdfDoc;
 }
 export async function saveBytes(doc, opts = {}) {
-  const pdfDoc = await bake(doc, opts); let bytes = await libSave(pdfDoc, { useObjectStreams: !!opts.objectStreams });
-  if (opts.security?.enabled) bytes = await encryptPdf(bytes, opts.security);
+  const pdfDoc = await bake(doc, opts); let bytes = await libSave(pdfDoc, { useObjectStreams: false });
+  const haveMu = await mu.available();
+  if (opts.objectStreams && haveMu) { try { bytes = await mu.compact(bytes, { objectStreams: true }); } catch (e) { console.warn('compact failed', e); } }
+  if (opts.security?.enabled) bytes = haveMu ? await mu.encrypt(bytes, opts.security) : await encryptPdf(bytes, opts.security);
   return bytes;
+}
+/** True redaction: removes text, images and line art under the given user-space rects on a page and draws the boxes. */
+export async function applyTrueRedaction(doc, marks) {
+  if (!(await mu.available())) return false;
+  let base = doc.bytes; if (doc.encrypted || doc.password) base = (await mu.decrypt(base, doc.password || '')).bytes;
+  const jobs = []; for (const pm of doc.pages) { const rects = marks.filter(m => doc.pageOf(m) === pm).map(m => toMuRect(pm, rectNorm(m.rect))); if (rects.length) jobs.push({ pageIndex: pm.index, rects }); }
+  const out = await mu.removeContent(base, jobs, { blackBoxes: false }); doc.encrypted = false; doc.password = null; await doc.load(out, { keepPages: doc.pages.slice() }); return true;
 }
 
 // ---------- page operations ----------
