@@ -12,11 +12,13 @@
     "package": "node scripts/package.mjs all",
     "package:linux": "node scripts/package.mjs linux",
     "package:win": "node scripts/package.mjs win32",
-    "package:mac": "node scripts/package.mjs darwin"
+    "package:mac": "node scripts/package.mjs darwin",
+    "install:linux": "bash scripts/install-linux.sh",
+    "uninstall:linux": "bash scripts/uninstall-linux.sh"
   },
   "keywords": [],
-  "author": "",
-  "license": "MIT",
+  "author": "Daud",
+  "license": "AGPL-3.0-only",
   "description": "A from-scratch desktop re-implementation of the Master PDF Editor workspace (Electron, pdf.js, pdf-lib, MuPDF).",
   "dependencies": {
     "mupdf": "^1.28.1",
@@ -28,5 +30,9 @@
   "devDependencies": {
     "@electron/packager": "^18.4.4",
     "electron": "^41.7.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sweetld/master-pdf-editor.git"
   }
 }

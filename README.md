@@ -1,32 +1,63 @@
-# Master PDF Editor — replica
+# Master PDF Editor (replica)
 
-A from-scratch desktop re-implementation of the [Master PDF Editor](https://code-industry.net/masterpdfeditor/) workspace for Windows 10+, macOS and Linux (Electron), which also runs in a browser. It reproduces the application's layout — main menu, the Main / Edit / View / Zoom / Find / Tools / Forms / Objects / Comments / Redaction toolbars, the Navigation Panel (Pages, Bookmarks, Attachments, Search, Object TreeView, Signatures, Layers, Comments), document tabs, pop-up notices, the Object Inspector and the status bar — and the functions behind every menu item.
+A from-scratch desktop re-implementation of the [Master PDF Editor](https://code-industry.net/masterpdfeditor/) workspace for **Windows 10+, macOS and Linux**. The same code runs on all three (Electron), so the interface is identical everywhere; it also runs in a browser with fewer features.
 
-Rendering is done by **pdf.js**, writing by **pdf-lib**, and **MuPDF** (WASM) does what pdf-lib cannot: removing original page content, true redaction, decrypting and encrypting (RC4 40/128, AES-128, AES-256) and compacting with object streams. Digital signatures are real PKCS#7 signatures made with **node-forge**. No build step: plain ES modules, the same files on every platform, so the UI is pixel-identical.
+![Master PDF Editor replica with the sample document open](docs/screenshot.png)
 
-## Run
+Rendering is done by **pdf.js**, writing by **pdf-lib**, and **MuPDF** (WASM) does what pdf-lib cannot: removing original page content, true redaction, decrypting and encrypting (RC4 40/128, AES-128, AES-256) and compacting with object streams. Digital signatures are real PKCS#7 signatures made with **node-forge**. There is no build step: plain ES modules.
+
+This project is independent of Code Industry Ltd, the makers of Master PDF Editor; see `THIRD-PARTY-NOTICES.md`.
+
+## Installation
+
+### From a packaged folder (no Node.js needed)
+
+Download or build the folder for your platform (see *Build packages* below), then:
+
+| Platform | Steps |
+|---|---|
+| **Windows 10/11** | Copy `Master PDF Editor-win32-x64` anywhere (for example `C:\Program Files\Master PDF Editor`), then run `Master PDF Editor.exe`. SmartScreen warns on first launch because the build is unsigned: choose *More info → Run anyway*. For a Start-menu entry, right-click the exe → *Pin to Start*, or create a shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs`. |
+| **macOS 12+** | Copy `Master PDF Editor.app` from `Master PDF Editor-darwin-arm64` (Apple silicon) or `-darwin-x64` (Intel) into `/Applications`. The first time, right-click the app → *Open* and confirm, because it is not notarised. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine "/Applications/Master PDF Editor.app"` once. |
+| **Linux** | Run `scripts/install-linux.sh` (or `npm run install:linux` from a checkout). It copies the build to `~/.local/opt/master-pdf-editor`, adds *Master PDF Editor* to your applications menu with the icon and PDF file association, and puts `master-pdf-editor` on your `PATH`. `scripts/uninstall-linux.sh` reverses it. |
+
+Optional per-platform extras:
+
+* **Scanning** uses SANE on Linux (`sudo apt install sane-utils`, already present on most desktops) and on macOS (`brew install sane-backends`); Windows uses the built-in Windows Image Acquisition service.
+* **Email with attachment** uses `xdg-email` on Linux, Mail on macOS and Outlook on Windows; without those it opens your mail client with `mailto:` and shows the file to attach.
+
+### From source
+
+Requires Node.js 20 or later and npm.
 
 ```bash
-npm install && npm run vendor   # once: copies pdf.js, pdf-lib and MuPDF into vendor/
-npm start                       # desktop window (Electron)
-npm run smoke                   # headless self-test, prints a JSON report
-npm run web                     # browser mode on http://127.0.0.1:8765/ (fewer features)
+git clone https://github.com/sweetld/master-pdf-editor.git
+cd master-pdf-editor
+npm install
+npm run vendor      # copies pdf.js, pdf-lib and MuPDF into vendor/ (already committed; run after upgrading them)
+npm start           # opens the desktop window
 ```
 
-Pass a PDF path on the command line to open it; drag files onto the window; the recent list reopens files by path.
-
-## Package
+Other commands:
 
 ```bash
-npm run package                 # dist/<name>-linux-x64, -win32-x64, -darwin-x64, -darwin-arm64
-npm run package:linux           # one platform at a time
+npm run dev         # desktop window with DevTools
+npm run smoke       # headless self-test; prints a SMOKE-RESULT JSON line
+npm run web         # browser mode at http://127.0.0.1:8765/ (no scanner, no cryptographic signing)
+npm run sample      # regenerates samples/sample.pdf
 ```
 
-Each `dist/…` folder is a complete, runnable application (copy it over, run `master-pdf-editor`, `Master PDF Editor.exe` or `Master PDF Editor.app`). Nothing is signed, so Windows SmartScreen and macOS Gatekeeper show a warning the first time (right-click → Open on macOS). The Windows build gets its exe icon only when packaged with Wine present.
+Pass a PDF path on the command line to open it (`npm start -- file.pdf`), or drag files onto the window.
 
-`npm run sample` regenerates `samples/sample.pdf` (text, shapes, form fields, comments, outline).
+### Build packages
 
-## What is implemented
+```bash
+npm run package           # dist/ for linux-x64, win32-x64, darwin-x64 and darwin-arm64
+npm run package:linux     # or one platform: package:win, package:mac
+```
+
+Each `dist/…` folder is a complete runnable application built with @electron/packager (about 300 MB, mostly Electron). All platforms can be built from Linux; the Windows exe only receives its icon when Wine is installed on the build machine, and macOS code signing and notarisation need a Mac with an Apple Developer account (not done here).
+
+## Features
 
 | Menu | Items |
 |---|---|
@@ -62,3 +93,7 @@ Existing comments and form fields are read from the file and are editable; savin
 * The Windows and macOS scanner and email paths were written against the platform APIs but tested only on Linux.
 * Layers (optional content) can be toggled but not created.
 * In browser mode: no scanner, no cryptographic signatures, no attachments in email, and files are downloaded unless the browser offers the File System Access API.
+
+## Licence
+
+AGPL-3.0 — see `LICENSE`. The bundled MuPDF library is AGPL-3.0, which is why the application carries that licence; the other components are Apache-2.0, MIT and BSD (listed in `THIRD-PARTY-NOTICES.md`).
