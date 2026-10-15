@@ -8,13 +8,14 @@ if [ ! -x "$SRC/master-pdf-editor" ]; then echo "Packaged build not found at $SR
 rm -rf "$DEST"; mkdir -p "$(dirname "$DEST")"; cp -a "$SRC" "$DEST"
 mkdir -p "$HOME/.local/share/icons/hicolor/512x512/apps" "$HOME/.local/share/applications" "$HOME/.local/bin"
 cp "$HERE/icon.png" "$HOME/.local/share/icons/hicolor/512x512/apps/master-pdf-editor.png"
+cp "$HERE/icon.png" "$DEST/icon.png"
 cat > "$HOME/.local/share/applications/master-pdf-editor.desktop" <<DESK
 [Desktop Entry]
 Type=Application
 Name=Master PDF Editor
 Comment=View, edit, comment, sign and encrypt PDF documents
 Exec=$DEST/master-pdf-editor %F
-Icon=master-pdf-editor
+Icon=$DEST/icon.png
 Terminal=false
 Categories=Office;Viewer;
 MimeType=application/pdf;
