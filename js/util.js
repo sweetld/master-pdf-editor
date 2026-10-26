@@ -88,7 +88,7 @@ export function parsePageRange(s, max) { // "1-3,5,8-" → zero-based indices
 
 // ---------- Settings (Tools > Settings) ----------
 export const DEFAULT_SETTINGS = {
-  general: { author: 'User', openLastSession: false, recentCount: 10, showWelcome: true, confirmClose: true, restoreZoom: true },
+  general: { author: 'User', openLastSession: false, recentCount: 10, showWelcome: true, confirmClose: true, restoreZoom: true, undoSteps: 0 },
   system: { autosaveMinutes: 5, backupOnSave: false, singleInstance: true, associateFiles: false },
   forms: { highlightFields: true, highlightColor: '#ccd7ff', autoCalculate: true, showFieldNames: false },
   editing: { snapTolerance: 5, nudgeStep: 5, nudgeStepFine: 1, defaultFont: 'Helvetica', defaultFontSize: 12, textCover: '#ffffff', smartGuides: true },

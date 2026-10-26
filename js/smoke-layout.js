@@ -162,6 +162,31 @@ export async function runLayoutSmoke(app, step) {
   app.editor.startResize(evR(hx, hy), 'e'); app.editor.onMove(evR(qx, qy)); const rg = document.querySelectorAll('.snap-guide').length; app.editor.onUp(evR(qx, qy)); app.viewer.el.setPointerCapture = capR;
   check('layout.snapResize', Math.abs(rf.rect[2] - 297.5) < 0.05 && rg > 0, { right: rf.rect[2], guides: rg });
   await app.undo();
+  // Ctrl+Z right after a drag, with the moved object still selected, undoes the move
+  const ctrlZ = () => { const t = document.activeElement || document.body; t.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true })); return (t.tagName || '') + (t.id ? '#' + t.id : '') + (t.className && typeof t.className === 'string' ? '.' + t.className.split(' ')[0] : ''); };
+  await app.editor.ensureScanned(doc.pages[1]); const uf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'email'); const ux0 = uf.rect[0];
+  await snapDrag(uf, 40, true); const movedF = Math.abs(uf.rect[0] - ux0) > 1; const n1 = doc.undoStack.length; const sel1 = app.editor.selection.length; const focus1 = ctrlZ(); for (let k = 0; k < 30 && (app._relayoutBusy || k < 3); k++) await new Promise(r => setTimeout(r, 100));
+  const fNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'email');
+  check('layout.ctrlZAfterModelMove', movedF && sel1 > 0 && Math.abs(fNow.rect[0] - ux0) < 0.01, { focus: focus1, undoBefore: n1, undoAfter: doc.undoStack.length, x: fNow.rect[0], x0: ux0 });
+  await app.editor.ensureScanned(doc.pages[1]); const ut = doc.pages[1].items.find(i => i.orig === 'text' && /^Telephone/.test(i.props.text)); const tx0 = ut.rect[0];
+  await snapDrag(ut, 40, true); await app.editor.ensureScanned(doc.pages[1]); const sel2 = app.editor.selection.length; const focus2 = ctrlZ(); for (let k = 0; k < 30 && (app._relayoutBusy || k < 3); k++) await new Promise(r => setTimeout(r, 100)); await app.editor.ensureScanned(doc.pages[1]);
+  const tNow = doc.pages[1].items.find(i => i.orig === 'text' && /^Telephone/.test(i.props.text));
+  check('layout.ctrlZAfterExactMove', sel2 > 0 && tNow && Math.abs(tNow.rect[0] - tx0) < 0.6, { focus: focus2, sel: sel2, x: tNow?.rect[0], x0: tx0 });
+  // the undo history is not capped at 40 steps, and it survives saving (which reloads the document)
+  await app.editor.ensureScanned(doc.pages[1]); const hf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); const h0 = hf.rect[0], base = doc.undoStack.length;
+  app.editor.select([hf]); for (let k = 0; k < 60; k++) app.editor.nudge(1, 0);
+  const depth = doc.undoStack.length - base; for (let k = 0; k < 60; k++) await app.undo();
+  const hfNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
+  check('layout.undoFullHistory', depth === 60 && Math.abs(hfNow.rect[0] - h0) < 0.01, { depth, x: hfNow.rect[0], x0: h0 });
+  app.editor.select([hfNow]); app.editor.nudge(25, 0); await app.reopenFromBytes(doc, await ops.saveBytes(doc, {}));
+  const afterSave = doc.undoStack.length; await app.undo(); const hfBack = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
+  check('layout.undoAfterSave', afterSave > 0 && hfBack && Math.abs(hfBack.rect[0] - h0) < 0.01, { afterSave, x: hfBack?.rect[0], x0: h0 });
+  // Ctrl+Z works while the selected object's Inspector field has keyboard focus (and wasn't edited)
+  await app.editor.ensureScanned(doc.pages[1]); const kf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); app.editor.select([kf]); app.editor.nudge(10, 0); app.editor.select([kf]); app.inspector.render();
+  const fi = [...document.querySelectorAll('input')].find(i => i.offsetParent && i.closest('#inspector, .inspector, [class*=insp]') && i.type === 'text'); fi?.focus();
+  const tgt = document.activeElement; tgt.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true })); await new Promise(r => setTimeout(r, 300));
+  const kfNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
+  check('layout.ctrlZFromInspectorField', tgt?.tagName === 'INPUT' && Math.abs(kfNow.rect[0] - h0) < 0.01, { focus: tgt?.tagName, x: kfNow.rect[0], x0: h0 });
   // Object TreeView: Ctrl+click adds graphics and fields to one selection
   app.panels.openPages = new Set([1]); app.panels.openGroups = new Set(['1:Vector graphics', '1:Form fields']); app.setTool('hand'); app.panels.show('objtree'); await app.editor.ensureScanned(doc.pages[1], true); app.panels.render();
   const rows = app.panels.objRows; const vRow = rows.find(r => r.it.orig === 'vector'), fRows = rows.filter(r => r.it.kind === 'field');

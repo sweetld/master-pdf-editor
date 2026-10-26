@@ -11,7 +11,9 @@ export const FIELD_TYPES = { text: 'Text Field', checkbox: 'Check Box', radio: '
 export const NOTE_ICONS = ['Comment', 'Note', 'Key', 'Help', 'NewParagraph', 'Paragraph', 'Insert', 'Check', 'Circle', 'Cross', 'RightArrow', 'RightPointer', 'Star', 'UpArrow', 'UpLeftArrow'];
 export const STAMPS = ['APPROVED', 'NOT APPROVED', 'DRAFT', 'FINAL', 'COMPLETED', 'CONFIDENTIAL', 'FOR PUBLIC RELEASE', 'NOT FOR PUBLIC RELEASE', 'FOR COMMENT', 'VOID', 'PRELIMINARY RESULTS', 'INFORMATION ONLY', 'SIGN HERE', 'WITNESS', 'INITIAL HERE', 'ACCEPTED', 'REJECTED', 'REVIEWED', 'RECEIVED', 'EXPERIMENTAL', 'TOP SECRET', 'AS IS', 'DEPARTMENTAL', 'SOLD', 'REVISED'];
 export const COMMENT_STATUS = ['None', 'Accepted', 'Rejected', 'Cancelled', 'Completed'];
-export const MAX_UNDO = 40;
+// Undo keeps the whole editing history by default (Settings > General > Undo steps; 0 = unlimited),
+// dropping the oldest steps only if the history would grow past this much memory.
+export const UNDO_MEMORY = 1.5e9;
 
 export function author() { return settings.comments.author || settings.general.author || 'User'; }
 export function newItem(kind, type, extra = {}) {
@@ -90,8 +92,14 @@ export class PdfDoc {
     }
   }
   // Item operations (all undoable)
-  snapshot() { return { bytes: this.bytes, pages: this.pages.map(p => ({ key: p.key, items: clone(p.items) })), outline: clone(this.outline), attachments: this.attachments.map(a => ({ ...a })), docJs: clone(this.docJs), docActions: clone(this.docActions), meta: clone(this.meta) }; }
-  pushUndo(label = '') { this.undoStack.push({ label, snap: this.snapshot() }); if (this.undoStack.length > MAX_UNDO) this.undoStack.shift(); this.redoStack.length = 0; this.modified = true; this.emit('modified'); }
+  snapshot() { let size = 0; const pages = this.pages.map(p => { const j = JSON.stringify(p.items); size += j.length * 2; return { key: p.key, items: JSON.parse(j) }; }); return { bytes: this.bytes, pages, outline: clone(this.outline), attachments: this.attachments.map(a => ({ ...a })), docJs: clone(this.docJs), docActions: clone(this.docActions), meta: clone(this.meta), size }; }
+  /** Drops the oldest undo steps beyond the step limit (if any) or the memory budget. */
+  trimHistory() {
+    const steps = Math.max(0, Math.floor(settings.general?.undoSteps || 0)); if (steps) while (this.undoStack.length > steps) this.undoStack.shift();
+    const mem = () => { const bytes = new Set([this.bytes]); let n = 0; for (const e of [...this.undoStack, ...this.redoStack]) { n += e.snap.size || 0; bytes.add(e.snap.bytes); } for (const b of bytes) n += b?.length || 0; return n; };
+    while (this.undoStack.length > 1 && mem() > UNDO_MEMORY) this.undoStack.shift();
+  }
+  pushUndo(label = '') { this.undoStack.push({ label, snap: this.snapshot() }); this.redoStack.length = 0; this.trimHistory(); this.modified = true; this.emit('modified'); }
   async restore(snap) {
     const bytesChanged = snap.bytes !== this.bytes;
     const byKey = new Map(this.pages.map(p => [p.key, p]));
@@ -101,7 +109,7 @@ export class PdfDoc {
     else { this.pages = pages; this.pages.forEach((p, i) => p.index = i); this.emit('items'); }
     this.modified = true; this.emit('modified');
   }
-  async undo() { const u = this.undoStack.pop(); if (!u) return false; this.redoStack.push({ label: u.label, snap: this.snapshot() }); await this.restore(u.snap); return u.label; }
+  async undo() { const u = this.undoStack.pop(); if (!u) return false; this.redoStack.push({ label: u.label, snap: this.snapshot() }); await this.restore(u.snap); this.trimHistory(); return u.label; }
   async redo() { const r = this.redoStack.pop(); if (!r) return false; this.undoStack.push({ label: r.label, snap: this.snapshot() }); await this.restore(r.snap); return r.label; }
   addItem(pageIdx, item, label = 'Add') { this.pushUndo(label); const pm = this.pages[pageIdx]; pm.items.push(item); pm.renderVersion++; this.emit('items', { page: pageIdx }); return item; }
   removeItems(items, label = 'Delete') { if (!items.length) return; this.pushUndo(label); for (const it of items) { const pm = this.pageOf(it); if (!pm) continue; if (it.orig) { it.deleted = true; it.origModified = true; } else pm.items.splice(pm.items.indexOf(it), 1); pm.renderVersion++; } this.emit('items'); }
