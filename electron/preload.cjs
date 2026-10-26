@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('native', {
   openFiles: (o) => call('openFiles', o), saveDialog: (o) => call('saveDialog', o), pickFolder: () => call('pickFolder'),
   readFile: async (p) => new Uint8Array(await call('readFile', { path: p })), writeFile: (p, data, backup) => call('writeFile', { path: p, data, backup }), fileInfo: (p) => call('fileInfo', { path: p }),
   showInFolder: (p) => call('showInFolder', { path: p }), openExternal: (url) => call('openExternal', { url }), openPath: (p) => call('openPath', { path: p }), setTitle: (title) => call('setTitle', { title }),
-  quit: () => call('quit'), allowClose: () => call('allowClose'), fullscreen: (on) => call('fullscreen', { on }), copyImage: (dataUrl) => call('copyImage', { dataUrl }),
+  quit: () => call('quit'), allowClose: () => call('allowClose'), fullscreen: (on) => call('fullscreen', { on }), copyImage: (dataUrl) => call('copyImage', { dataUrl }), capturePage: async () => new Uint8Array(await call('capturePage')),
   print: (o) => call('print', o), printToPdf: (o) => call('printToPdf', o), email: (o) => call('email', o),
   scanner: { list: () => call('scannerList'), scan: async (o) => { const r = await call('scannerScan', o); if (r?.data) r.data = new Uint8Array(r.data); return r; } },
   sign: { listIds: () => call('signListIds'), createId: (o) => call('signCreateId', o), importId: (p) => call('signImportId', { path: p }), removeId: (p) => call('signRemoveId', { path: p }), inspect: (o) => call('signInspect', o), sign: async (o) => new Uint8Array(await call('signPdf', o)), verify: (o) => call('verifyPdf', o) },

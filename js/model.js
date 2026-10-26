@@ -58,7 +58,7 @@ export class PdfDoc {
       pm.index = i; pm.doc = this;
       pm.pdfPage = await this.pdf.getPage(i + 1);
       const vp = pm.pdfPage.getViewport({ scale: 1 });
-      pm.width = vp.width; pm.height = vp.height; pm.rotate = pm.pdfPage.rotate; pm.userUnit = pm.pdfPage.userUnit || 1; pm.scan = null; pm.renderVersion++;
+      pm.width = vp.width; pm.height = vp.height; pm.rotate = pm.pdfPage.rotate; pm.userUnit = pm.pdfPage.userUnit || 1; pm.scan = null; pm.textContent = null; pm.renderVersion++;
       this.pages.push(pm);
     }
     if (!keepPages) { for (const pm of this.pages) await this.importAnnotations(pm); }
@@ -127,17 +127,31 @@ export class PdfDoc {
     } catch (e) { console.warn('text scan', e); }
     try {
       const ops = await pm.pdfPage.getOperatorList();
-      const O = pdfjsLib.OPS; const stack = []; let ctm = [1, 0, 0, 1, 0, 0]; let lw = 1; const pathSeen = new Map();
+      // Graphics state: transform, line width, stroke colour and the clip of enclosing form XObjects
+      // (content moved by the editor sits in clipped XObjects, so their bbox bounds what is visible).
+      const O = pdfjsLib.OPS; const stack = []; let gs = { ctm: [1, 0, 0, 1, 0, 0], lw: 1, stroke: '#000000', clip: null }; const pathSeen = new Map();
+      const tx = { tm: [1, 0, 0, 1, 0, 0], lm: [1, 0, 0, 1, 0, 0], leading: 0 }; const textAt = [];
       for (let i = 0; i < ops.fnArray.length; i++) {
-        const fn = ops.fnArray[i], args = ops.argsArray[i];
-        if (fn === O.save) stack.push(ctm);
-        else if (fn === O.restore) ctm = stack.pop() || ctm;
-        else if (fn === O.transform) ctm = mulMatrix(args, ctm);
-        else if (fn === O.setLineWidth) lw = args[0];
-        else if (fn === O.paintFormXObjectBegin) { stack.push(ctm); if (args[0]) ctm = mulMatrix(args[0], ctm); }
-        else if (fn === O.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+        const fn = ops.fnArray[i], args = ops.argsArray[i]; const ctm = gs.ctm, lw = gs.lw;
+        if (fn === O.beginAnnotation) { while (i < ops.fnArray.length && ops.fnArray[i] !== O.endAnnotation) i++; continue; } // annotation appearances are items, not page content
+        if (fn === O.save) stack.push({ ...gs });
+        else if (fn === O.restore) gs = stack.pop() || gs;
+        // Text positions with the clip they are drawn under: text moved by the editor sits in clipped form XObjects,
+        // and getTextContent also returns the parts that the clip hides (see the filter below).
+        else if (fn === O.beginText) tx.tm = tx.lm = [1, 0, 0, 1, 0, 0];
+        else if (fn === O.setTextMatrix) { const m = Array.from(args.length >= 6 ? args : args[0] || []); if (m.length >= 6) tx.tm = tx.lm = m.slice(0, 6); }
+        else if (fn === O.moveText || fn === O.setLeadingMoveText) { if (fn === O.setLeadingMoveText) tx.leading = -args[1]; tx.tm = tx.lm = mulMatrix([1, 0, 0, 1, args[0], args[1]], tx.lm); }
+        else if (fn === O.setLeading) tx.leading = args[0];
+        else if (fn === O.nextLine || fn === O.nextLineShowText || fn === O.nextLineSetSpacingShowText) { tx.tm = tx.lm = mulMatrix([1, 0, 0, 1, 0, -tx.leading], tx.lm); if (fn !== O.nextLine) textAt.push({ p: applyMatrix(mulMatrix(tx.tm, ctm), 0, 0), clip: gs.clip }); }
+        else if (fn === O.showText || fn === O.showSpacedText) textAt.push({ p: applyMatrix(mulMatrix(tx.tm, ctm), 0, 0), clip: gs.clip });
+        else if (fn === O.transform) gs.ctm = mulMatrix(args, ctm);
+        else if (fn === O.setLineWidth) gs.lw = args[0];
+        else if (fn === O.setGState) { for (const kv of args?.[0] || []) if (Array.isArray(kv) && kv[0] === 'LW' && typeof kv[1] === 'number') gs.lw = kv[1]; }
+        else if (fn === O.setStrokeRGBColor) gs.stroke = opColorHex(args) || gs.stroke;
+        else if (fn === O.paintFormXObjectBegin) { stack.push({ ...gs }); if (args[0]) gs.ctm = mulMatrix(args[0], ctm); const bb = args[1]; if (Array.isArray(bb) || ArrayBuffer.isView(bb)) { const r = rectNormPts([[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]].map(([x, y]) => applyMatrix(gs.ctm, x, y))); gs.clip = gs.clip ? intersectRect(gs.clip, r) : r; } }
+        else if (fn === O.paintFormXObjectEnd) gs = stack.pop() || gs;
         else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject || fn === O.paintImageMaskXObject || fn === O.paintImageXObjectRepeat) {
-          const pts = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => applyMatrix(ctm, x, y)); const rect = rectNormPts(pts);
+          const pts = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => applyMatrix(ctm, x, y)); let rect = rectNormPts(pts); if (gs.clip) { rect = intersectRect(gs.clip, rect); if (!rect) continue; }
           const name = typeof args[0] === 'string' ? args[0] : (args[0]?.name || null);
           scan.images.push({ id: uid('im'), kind: 'object', type: 'image', orig: 'image', rect, rotation: Math.round(Math.atan2(ctm[1], ctm[0]) * 180 / Math.PI), props: { name, opacity: 1, imgName: name, inline: fn === O.paintInlineImageXObject, mask: fn === O.paintImageMaskXObject, matrix: ctm.slice() }, ref: fn === O.paintInlineImageXObject ? args[0] : null });
         }
@@ -145,15 +159,30 @@ export class PdfDoc {
           const minMax = args[2] || args[1]?.minMax; let rect = null;
           if (Array.isArray(minMax) && minMax.length === 4 && isFinite(minMax[0])) { const pts = [[minMax[0], minMax[1]], [minMax[2], minMax[1]], [minMax[2], minMax[3]], [minMax[0], minMax[3]]].map(([x, y]) => applyMatrix(ctm, x, y)); rect = rectNormPts(pts); }
           else if (Array.isArray(args[1])) { const coords = args[1]; const pts = []; for (let k = 0; k + 1 < coords.length; k += 2) pts.push(applyMatrix(ctm, coords[k], coords[k + 1])); if (pts.length) rect = rectNormPts(pts); }
+          if (rect && gs.clip) rect = intersectRect(gs.clip, rect);
           if (rect && isFinite(rect[0]) && (rect[2] - rect[0] > 0.5 || rect[3] - rect[1] > 0.5)) { const paint = ops.fnArray[i + 1]; const key = rect.map(v => v.toFixed(1)).join(',');
-            if (!pathSeen.has(key) && paint !== O.clip && paint !== O.eoClip && paint !== O.endPath) { pathSeen.set(key, 1); scan.vectors.push({ id: uid('v'), kind: 'object', type: 'vector', orig: 'vector', rect, rotation: 0, props: { paint: paintName(paint, O), lineWidth: lw, ops: args[0]?.length || 0 } }); } }
+            if (!pathSeen.has(key) && paint !== O.clip && paint !== O.eoClip && paint !== O.endPath) { pathSeen.set(key, 1); const pn = paintName(paint, O); scan.vectors.push({ id: uid('v'), kind: 'object', type: 'vector', orig: 'vector', rect, rotation: 0, props: { paint: pn, lineWidth: +(lw * Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])) || lw).toFixed(3), ops: args[0]?.length || 0, stroke: /stroke/i.test(pn) ? gs.stroke : null, isRect: isRectPath(args, O) } }); } }
         }
       }
+      // Drop text runs that are drawn only where a clip hides them (unmatched runs are kept).
+      if (textAt.some(t => t.clip)) scan.texts = scan.texts.filter(t => { const e = t.ref?.transform?.[4], f = t.ref?.transform?.[5]; const at = textAt.filter(a => Math.abs(a.p[0] - e) < 1 && Math.abs(a.p[1] - f) < 1); return !at.length || at.some(a => !a.clip || overlapArea(a.clip, t.rect) > 0.5); });
     } catch (e) { console.warn('op scan', e); }
     pm.scan = scan; return scan;
   }
 }
 function rectNormPts(pts) { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
+function overlapArea(a, b) { const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]); return w > 0 && h > 0 ? w * h : 0; }
+function intersectRect(a, b) { const r = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]; return r[2] >= r[0] && r[3] >= r[1] ? r : null; }
+/** Colour operand of a set…RGBColor op as #rrggbb (pdf.js passes a hex string or 0..255 bytes). */
+function opColorHex(args) { const a = args?.[0]; if (typeof a === 'string') return a; const v = ArrayBuffer.isView(a) || Array.isArray(a) ? a : args; if (!v || v.length < 3) return null; return '#' + [0, 1, 2].map(k => Math.round(Math.max(0, Math.min(255, v[k]))).toString(16).padStart(2, '0')).join(''); }
+/** True when a constructPath draws one axis-aligned rectangle ('re', or m/l/l/l[/l][/h] through its corners). */
+function isRectPath(args, O) {
+  const ops = Array.from(args?.[0] || []); if (ops.length && ops.every(o => o === O.rectangle)) return ops.length === 1;
+  const c = args?.[1]; if (!c || typeof c.length !== 'number' || !ops.length || ops[0] !== O.moveTo) return false;
+  const lines = ops.filter(o => o === O.lineTo).length; if (lines < 3 || lines > 4 || ops.some(o => o !== O.moveTo && o !== O.lineTo && o !== O.closePath) || ops.filter(o => o === O.moveTo).length !== 1) return false;
+  const xs = [], ys = []; for (let k = 0; k + 1 < c.length; k += 2) { xs.push(c[k]); ys.push(c[k + 1]); } const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; const near = (v, a, b) => Math.abs(v - a) < 0.01 || Math.abs(v - b) < 0.01;
+  return x1 - x0 > 0.5 && y1 - y0 > 0.5 && xs.every(x => near(x, x0, x1)) && ys.every(y => near(y, y0, y1));
+}
 function paintName(op, O) { for (const k of ['stroke', 'closeStroke', 'fill', 'eoFill', 'fillStroke', 'eoFillStroke', 'closeFillStroke', 'closeEOFillStroke', 'endPath']) if (O[k] === op) return k; return 'path'; }
 export function cleanFontName(fontName, style) { const f = style?.fontFamily || fontName || 'Helvetica'; return f.replace(/^[A-Z]{6}\+/, ''); }
 

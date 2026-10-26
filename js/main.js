@@ -1,9 +1,10 @@
 import { App } from './app.js';
 import { platform } from './platform.js';
 import { runSmoke } from './smoke.js';
+import { installAgent } from './agent.js';
 window.addEventListener('DOMContentLoaded', async () => {
   await platform.init();
-  const app = new App(); window.mpe = app; await app.loadRecent();
+  const app = new App(); window.mpe = app; installAgent(app); await app.loadRecent();
   platform.onOpenFiles(files => app.openPaths(files));
   platform.onRequestClose(async () => { for (const d of app.docs.slice()) { if (!(await app.closeDoc(d))) return; } platform.allowClose(); });
   const pending = await platform.pendingFiles(); if (pending.length) await app.openPaths(pending);

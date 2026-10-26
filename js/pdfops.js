@@ -21,10 +21,14 @@ export async function libLoad(doc, bytes = doc.bytes) {
 export function toMuRect(pm, rect) { const vp = pm.pdfPage.getViewport({ scale: 1 }); const pts = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]]].map(([x, y]) => vp.convertToViewportPoint(x, y)); return bboxOfPoints(pts); }
 /** Removes the original content behind deleted or replaced original objects, returning new base bytes (or null if nothing to do). */
 export async function removeReplacedContent(doc, { pad = 0.5 } = {}) {
-  const jobs = []; for (const pm of doc.pages) { const rects = []; for (const it of pm.items) { if (it.kind === 'object' && it.orig && (it.deleted || it.origModified)) { const r = rectNorm(it.origRect || it.rect); rects.push(toMuRect(pm, [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad])); } } if (rects.length) jobs.push({ pageIndex: pm.index, rects }); }
-  if (!jobs.length || !(await mu.available())) return null;
+  // One pass per kind, so removing a box (vector) doesn't also remove the text inside it, and vice versa.
+  const kinds = { text: { images: false, lineArt: false, text: true }, image: { images: true, lineArt: false, text: false }, vector: { images: false, lineArt: true, text: false } };
+  const jobsOf = kind => { const jobs = []; for (const pm of doc.pages) { const rects = []; for (const it of pm.items) { if (it.kind === 'object' && it.orig === kind && (it.deleted || it.origModified)) { const r = rectNorm(it.origRect || it.rect); rects.push(toMuRect(pm, [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad])); } } if (rects.length) jobs.push({ pageIndex: pm.index, rects }); } return jobs; };
+  const all = Object.keys(kinds).map(k => [k, jobsOf(k)]).filter(([, j]) => j.length);
+  if (!all.length || !(await mu.available())) return null;
   let base = doc.bytes; if (doc.encrypted || doc.password) { const r = await mu.decrypt(base, doc.password || ''); base = r.bytes; }
-  return mu.removeContent(base, jobs);
+  for (const [k, jobs] of all) base = await mu.removeContent(base, jobs, kinds[k]);
+  return base;
 }
 export const libSave = (pdfDoc, opts = {}) => pdfDoc.save({ useObjectStreams: false, updateFieldAppearances: true, ...opts });
 
@@ -139,7 +143,7 @@ function embedFileSpec(pdfDoc, name, bytes) { const ctx = pdfDoc.context; const 
 function annotsArray(pdfDoc, page) { let a = page.node.lookup(PDFName.of('Annots')); if (!(a instanceof PDFArray)) { a = pdfDoc.context.obj([]); page.node.set(PDFName.of('Annots'), a); } return a; }
 const origNum = id => parseInt(String(id), 10);
 function removeOrigAnnots(pdfDoc, page, nums) { const arr = page.node.lookup(PDFName.of('Annots')); if (!(arr instanceof PDFArray)) return; const keep = []; for (let i = 0; i < arr.size(); i++) { const r = arr.get(i); if (r instanceof PDFRef && nums.has(r.objectNumber)) { const d = pdfDoc.context.lookup(r); if (d instanceof PDFDict) { const pop = d.get(PDFName.of('Popup')); if (pop instanceof PDFRef) nums.add(pop.objectNumber); } continue; } keep.push(r); } const out = keep.filter(r => !(r instanceof PDFRef && nums.has(r.objectNumber))); page.node.set(PDFName.of('Annots'), pdfDoc.context.obj(out)); }
-function lookupOrigAnnot(pdfDoc, page, id) { const arr = page.node.lookup(PDFName.of('Annots')); if (!(arr instanceof PDFArray)) return null; const n = origNum(id); for (let i = 0; i < arr.size(); i++) { const r = arr.get(i); if (r instanceof PDFRef && r.objectNumber === n) return { ref: r, dict: pdfDoc.context.lookup(r) }; } return null; }
+export function lookupOrigAnnot(pdfDoc, page, id) { const arr = page.node.lookup(PDFName.of('Annots')); if (!(arr instanceof PDFArray)) return null; const n = origNum(id); for (let i = 0; i < arr.size(); i++) { const r = arr.get(i); if (r instanceof PDFRef && r.objectNumber === n) return { ref: r, dict: pdfDoc.context.lookup(r) }; } return null; }
 
 // ---------- objects (page content) ----------
 async function drawObjectOps(pdfDoc, item, pm) {
@@ -172,7 +176,7 @@ function addResources(page, res) {
   if (Object.keys(res.gs).length) { const g = sub('ExtGState'); for (const [k, v] of Object.entries(res.gs)) g.set(PDFName.of(k), v); }
 }
 export function prependContent(pdfDoc, page, ops) { const ctx = pdfDoc.context; const stream = ctx.register(ctx.stream(ops.map(o => o.toString()).join('\n'))); const existing = page.node.Contents(); const arr = []; arr.push(stream); if (existing instanceof PDFArray) for (let i = 0; i < existing.size(); i++) arr.push(existing.get(i)); else if (existing) arr.push(page.node.get(PDFName.of('Contents'))); page.node.set(PDFName.of('Contents'), ctx.obj(arr)); }
-function wrapContentInGraphicsState(pdfDoc, page) { // q ... Q around existing content so our drawings start from a clean state
+export function wrapContentInGraphicsState(pdfDoc, page) { // q ... Q around existing content so our drawings start from a clean state
   const ctx = pdfDoc.context; const existing = page.node.Contents(); if (!existing) return; const q = ctx.register(ctx.stream('q\n')), Q = ctx.register(ctx.stream('\nQ\n')); const arr = [q]; if (existing instanceof PDFArray) for (let i = 0; i < existing.size(); i++) arr.push(existing.get(i)); else arr.push(page.node.get(PDFName.of('Contents'))); arr.push(Q); page.node.set(PDFName.of('Contents'), ctx.obj(arr));
 }
 

@@ -3,11 +3,14 @@ const { app, BrowserWindow, protocol, ipcMain, dialog, shell, net, Menu, clipboa
 const path = require('path'); const fs = require('fs'); const fsp = require('fs/promises');
 const scanner = require('./scanner.cjs'); const email = require('./email.cjs'); const signer = require('./sign.cjs');
 const ROOT = path.join(__dirname, '..');
+// `--mcp`: run as the MCP server on stdin/stdout (no window); it drives the running app over a local socket.
+const MCP_MODE = process.argv.includes('--mcp');
+if (MCP_MODE) require('./mcp.cjs').run({ launch: () => { const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; require('child_process').spawn(process.execPath, app.isPackaged ? [] : [ROOT], { detached: true, stdio: 'ignore', env }).unref(); } });
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.cjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.pdf': 'application/pdf', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.ttf': 'font/ttf', '.map': 'application/json' };
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 const pendingFiles = []; let mainWindow = null;
 const argFiles = (argv) => argv.slice(1).filter(a => !a.startsWith('-') && /\.(pdf|fdf|xfdf|png|jpe?g|bmp|gif|webp|txt)$/i.test(a) && fs.existsSync(a)).map(a => path.resolve(a));
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!MCP_MODE && !app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', (_e, argv) => { const files = argFiles(argv); if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); if (files.length) mainWindow.webContents.send('open-files', files); } else pendingFiles.push(...files); });
 app.on('open-file', (e, p) => { e.preventDefault(); if (mainWindow) mainWindow.webContents.send('open-files', [p]); else pendingFiles.push(p); });
 function createWindow() {
@@ -17,14 +20,15 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   mainWindow.on('close', (e) => { if (mainWindow._allowClose) return; e.preventDefault(); mainWindow.webContents.send('request-close'); });
   mainWindow.on('closed', () => { mainWindow = null; });
-  mainWindow.loadURL('app://-/index.html' + (process.argv.includes('--smoke') ? '?smoke=1' : ''));
+  mainWindow.loadURL('app://-/index.html' + (process.argv.includes('--smoke') ? (process.argv.includes('--layout') ? '?smoke=layout' + ((process.argv.find(a => a.startsWith('--file=')) || '').replace('--file=', '&file=')) + ((process.argv.find(a => a.startsWith('--mode=')) || '').replace('--mode=', '&mode=')) : '?smoke=1') : ''));
   if (process.argv.includes('--devtools')) mainWindow.webContents.openDevTools({ mode: 'detach' });
   const shot = process.argv.find(a => a.startsWith('--screenshot=')); if (shot) { mainWindow.setSize(1400, 900); mainWindow.webContents.once('did-finish-load', () => setTimeout(async () => { try { const img = await mainWindow.webContents.capturePage(); fs.writeFileSync(shot.slice(13), img.toPNG()); process.stdout.write('screenshot written\n'); } catch (e) { process.stdout.write('screenshot failed ' + e + '\n'); } app.exit(0); }, 4000)); }
   if (process.argv.includes('--smoke')) { mainWindow.webContents.on('console-message', function (e, a, b) { const msg = String(e && e.message !== undefined ? e.message : (typeof a === 'object' && a ? a.message : b)); const level = e && e.level !== undefined ? e.level : (typeof a === 'object' && a ? a.level : a); if (msg.startsWith('SMOKE-RESULT')) process.stdout.write(msg + '\n'); else if (level === 'error' || level >= 2 || /error/i.test(msg)) process.stdout.write('[renderer] ' + msg + '\n'); }); setTimeout(() => { process.stdout.write('SMOKE-TIMEOUT\n'); app.exit(2); }, 90000); }
 }
-app.whenReady().then(() => {
+if (!MCP_MODE) app.whenReady().then(() => {
   protocol.handle('app', async (req) => { const u = new URL(req.url); let p = decodeURIComponent(u.pathname); if (p === '/' || p === '') p = '/index.html'; const file = path.normalize(path.join(ROOT, p)); if (!file.startsWith(ROOT)) return new Response('forbidden', { status: 403 }); try { const data = await fsp.readFile(file); return new Response(data, { headers: { 'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' } }); } catch { return new Response('not found', { status: 404 }); } });
   pendingFiles.push(...argFiles(process.argv)); createWindow();
+  if (!process.argv.includes('--smoke')) require('./mcp-host.cjs').start(() => mainWindow);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => app.quit());
@@ -46,6 +50,7 @@ const handlers = {
   quit: () => { if (mainWindow) { mainWindow._allowClose = true; mainWindow.destroy(); } app.quit(); setTimeout(() => app.exit(0), 1500); return true; },
   allowClose: () => { if (mainWindow) { mainWindow._allowClose = true; mainWindow.close(); } return true; },
   fullscreen: ({ on }) => { mainWindow?.setFullScreen(!!on); return mainWindow?.isFullScreen(); },
+  capturePage: async () => (await mainWindow.webContents.capturePage()).toPNG(),
   copyImage: ({ dataUrl }) => { clipboard.writeImage(nativeImage.createFromDataURL(dataUrl)); return true; },
   print: async ({ silent = false, copies = 1, landscape = false } = {}) => new Promise((res) => { mainWindow.webContents.print({ silent, printBackground: true, copies, landscape }, (ok, reason) => res({ ok, reason })); }),
   printToPdf: async ({ landscape = false } = {}) => { const data = await mainWindow.webContents.printToPDF({ landscape, printBackground: true }); return data; },

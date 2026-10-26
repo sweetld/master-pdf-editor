@@ -42,6 +42,9 @@ Other commands:
 ```bash
 npm run dev         # desktop window with DevTools
 npm run smoke       # headless self-test; prints a SMOKE-RESULT JSON line
+npm run smoke:layout  # only the selection/re-layout checks; also writes /tmp/mpe-layout-*.png screenshots
+npm run test:mcp    # end-to-end test of the MCP server (drives the app like an AI agent)
+npm run docs:mcp    # regenerates docs/MCP_TOOLS.md from electron/mcp-tools.cjs
 npm run web         # browser mode at http://127.0.0.1:8765/ (no scanner, no cryptographic signing)
 npm run sample      # regenerates samples/sample.pdf
 ```
@@ -78,12 +81,23 @@ Existing comments and form fields are read from the file and are editable; savin
 ## Desktop features
 
 * **Editing original content**: deleted or replaced text, images and vector objects are removed from the page content by MuPDF on save (not covered). While editing, the replacement is previewed over a page-coloured box; after Save the document is reloaded from the written file, so what you see is what is in the file.
+* **Re-laying out page content**: in Edit Document mode the page's own text, vector graphics, images and form fields can be selected together (click, Ctrl+click, rubber-band around them, or Ctrl/Shift+click in the Object TreeView; Alt+click cycles through objects stacked under the cursor, unfilled boxes react only near their outline, and page backgrounds don't catch clicks). Dragging the selection, also onto another page, moves the original content exactly (same fonts and vector graphics, via MuPDF and pdf-lib) and moves form fields with their values; arrow keys nudge it. Edit › *Select Enclosed Content* (Ctrl+Alt+E) adds everything inside a selected box, *Move Selection to Page…* (Ctrl+Alt+M) moves it to another page, and *Flow Selection to Previous Page…* (Ctrl+Alt+F) moves a section into the free space at the bottom of the previous page: if it doesn't all fit it is split between two rows, the top part filling the gap and the rest moving up to where the section started, with boxes closed on both sides of the split and the content below moving up (the footer stays). Each of these is one undo step and is shown as it will be saved.
 * **Redaction** removes the text, image pixels and line art under the marks (Document → Redaction → Apply), with page rasterising still available as an alternative.
 * **Encryption** of any document, including ones that use object streams; password-protected files are edited after entering the user or owner password.
 * **Digital signatures**: Tools → Certificate Manager creates self-signed digital IDs (2048-bit RSA, stored as password-protected .p12 in the app data folder) or imports .p12/.pfx files; Forms → Signature signs (visible or invisible, with reason/location/contact, optional form lock); the Signatures panel's Validate checks every signature's integrity.
 * **From Scanner**: SANE (`scanimage`) on Linux and macOS (`brew install sane-backends`), Windows Image Acquisition on Windows. Multi-page, resolution and colour mode, into a new document or the current one.
 * **Email** composes a message with the file attached through xdg-email (Linux), Mail (macOS) or Outlook (Windows), falling back to mailto plus showing the file.
 * Native open/save dialogs, saving in place, backup copies (Settings → System), print through the OS print dialog, snapshots to the clipboard.
+
+## AI agents (MCP)
+
+The app has a built-in [MCP](https://modelcontextprotocol.io) server, so AI agents such as Claude Code can open, inspect and edit PDFs in the running app: you watch the changes happen and can undo them with Edit > Undo. Register it once:
+
+```bash
+claude mcp add --scope user master-pdf-editor -- master-pdf-editor --mcp
+```
+
+`master-pdf-editor --mcp` speaks MCP on stdin/stdout and starts the app if it isn't running. Its 40 tools cover rendering pages (exactly as they will be saved, optionally with element ids and a coordinate grid), page structure, finding and editing text, real deletion and exact moves of the original content (also onto another page), re-flowing a section into the gap at the bottom of the previous page, adding text, images, shapes and comments, forms and page operations. See [docs/MCP.md](docs/MCP.md) and the reference in [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
 
 ## Limitations (honest list)
 

@@ -3,6 +3,8 @@ import { platform } from './platform.js';
 export async function runSmoke(app) {
   const out = { ok: true, steps: [] }; const step = (name, v) => out.steps.push({ name, ...v }); const fail = (name, e) => { out.ok = false; step(name, { error: String(e?.stack || e) }); };
   try {
+    const { runLayoutSmoke } = await import('./smoke-layout.js');
+    if (new URLSearchParams(location.search).get('smoke') === 'layout') { if (!(await runLayoutSmoke(app, step))) out.ok = false; console.log('SMOKE-RESULT ' + JSON.stringify(out)); if (window.native) setTimeout(() => window.native.quit().catch(() => { }), 500); return; }
     const ops = await import('./pdfops.js'); const mu = await import('./mupdf-bridge.js'); const M = await import('./model.js');
     step('platform', { isDesktop: platform.isDesktop, os: platform.os, info: platform.info });
     const r = await fetch('samples/sample.pdf'); const bytes = new Uint8Array(await r.arrayBuffer()); const doc = await app.openBytes(bytes, 'sample.pdf'); step('open', { pages: doc.pages.length });
@@ -25,6 +27,8 @@ export async function runSmoke(app) {
     const sc = await platform.scanner.list(); step('scannerList', sc);
     // print to pdf (silent) sanity
     if (window.native) { const pdf = await window.native.printToPdf({}); step('printToPdf', { size: pdf?.length || pdf?.byteLength }); }
+    // selecting and re-laying out page content
+    if (!(await runLayoutSmoke(app, step))) out.ok = false;
     // UI actions smoke (non-dialog)
     let errors = 0; for (const id of ['view.zoomIn', 'view.zoomOut', 'view.fitPage', 'view.fitWidth', 'view.facing', 'view.continuous', 'view.grid', 'view.grid', 'tools.hand', 'tools.editText', 'tools.editForms', 'forms.highlight', 'view.nextPage', 'view.prevPage']) { try { app.run(id); } catch (e) { errors++; } } step('actions', { errors });
   } catch (e) { fail('exception', e); }

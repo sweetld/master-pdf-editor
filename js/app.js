@@ -8,6 +8,7 @@ import { Inspector } from './inspector.js';
 import { Dialogs } from './dialogs.js';
 import { MENUS, TOOLBARS } from './menus.js';
 import * as ops from './pdfops.js';
+import * as RL from './relayout.js';
 import { measureLabel } from './pdfops.js';
 import { exportXfdf, importXfdf, exportFdfForm, importFormData } from './fdf.js';
 import { recentDb } from './recent.js';
@@ -49,7 +50,7 @@ export class App {
     def('edit.delete', 'Delete', { icon: 'delete', shortcut: 'Del', enabled: needSel, run: () => this.editor.delete() }); def('edit.deleteAcross', 'Delete across pages', { icon: 'delete', enabled: needSel, run: () => this.editor.delete({ acrossPages: true }) }); def('edit.selectAll', 'Select All', { shortcut: 'Ctrl+A', enabled: needDoc, run: () => this.editor.selectAll() });
     def('edit.sendToBack', 'Send to Back', { icon: 'backward', shortcut: 'Ctrl+-', enabled: needSel, run: () => this.editor.zorder('back') }); def('edit.sendBackward', 'Send Backward', { icon: 'backward', enabled: needSel, run: () => this.editor.zorder('backward') }); def('edit.bringForward', 'Bring Forward', { icon: 'forward', enabled: needSel, run: () => this.editor.zorder('forward') }); def('edit.bringToFront', 'Bring to Front', { icon: 'forward', shortcut: 'Ctrl++', enabled: needSel, run: () => this.editor.zorder('front') });
     for (const [k, l, ic] of [['Left', 'Align Left', 'alignleft'], ['Right', 'Align Right', 'alignright'], ['Top', 'Align Top', 'aligntop'], ['Bottom', 'Align Bottom', 'alignbottom'], ['CenterH', 'Center Horizontally', 'aligncenterh'], ['CenterV', 'Center Vertically', 'aligncenterv']]) def('edit.align' + k, l, { icon: ic, enabled: () => this.editor.selection.length > 1, run: () => this.editor.align(k.toLowerCase()) });
-    def('edit.fitToPage', 'Set Fit to Page', { icon: 'fitpage', enabled: () => this.editor.active?.kind === 'object', run: () => this.editor.fitToPage() });
+    def('edit.fitToPage', 'Set Fit to Page', { icon: 'fitpage', enabled: () => this.editor.active?.kind === 'object', run: () => this.editor.fitToPage() }); def('edit.selectEnclosed', 'Select Enclosed Content', { icon: 'objtree', shortcut: 'Ctrl+Alt+E', enabled: needSel, run: () => this.selectEnclosed() }); def('edit.moveToPage', 'Move Selection to Page…', { icon: 'move', shortcut: 'Ctrl+Alt+M', enabled: needSel, run: () => this.moveToPageDialog() }); def('edit.flowPrev', 'Flow Selection to Previous Page…', { icon: 'move', shortcut: 'Ctrl+Alt+F', enabled: () => needSel() && this.doc?.pageOf(this.editor.selection[0])?.index > 0, run: () => this.flowDialog() });
     def('view.firstPage', 'First Page', { icon: 'first', shortcut: 'Home', enabled: needDoc, run: () => this.goTo(0) }); def('view.prevPage', 'Previous Page', { icon: 'prevpage', shortcut: 'PgUp', enabled: needDoc, run: () => this.goTo(this.viewer.current - (this.viewer.layout.startsWith('facing') ? 2 : 1)) }); def('view.nextPage', 'Next Page', { icon: 'nextpage', shortcut: 'PgDown', enabled: needDoc, run: () => this.goTo(this.viewer.current + (this.viewer.layout.startsWith('facing') ? 2 : 1)) }); def('view.lastPage', 'Last Page', { icon: 'last', shortcut: 'End', enabled: needDoc, run: () => this.goTo(this.doc.pages.length - 1) });
     def('view.goToPage', 'Go to page…', { icon: 'pages', shortcut: 'Ctrl+Alt+G', enabled: needDoc, run: async () => { const p = await this.dialogs.goToPage(this.doc); if (p != null) this.goTo(p); } }); def('view.nextView', 'Next View', { icon: 'nextview', enabled: () => this.doc && this.doc.viewIndex < this.doc.viewHistory.length - 1, run: () => this.viewer.nextView() }); def('view.prevView', 'Previous View', { icon: 'prevview', enabled: () => this.doc && this.doc.viewIndex > 0, run: () => this.viewer.prevView() });
     def('view.zoomIn', 'Zoom In', { icon: 'zoomin', shortcut: 'Ctrl++', enabled: needDoc, run: () => this.viewer.zoomBy(1) }); def('view.actualSize', 'Actual Size', { icon: 'actual', shortcut: 'Ctrl+0', enabled: needDoc, run: () => this.viewer.setZoom(1) }); def('view.zoomOut', 'Zoom Out', { icon: 'zoomout', shortcut: 'Ctrl+-', enabled: needDoc, run: () => this.viewer.zoomBy(-1) });
@@ -110,7 +111,7 @@ export class App {
   closeMenus() { $('#menu-layer').innerHTML = ''; this.openMenu = null; $$('#menubar .menu-title').forEach(t => t.classList.remove('open')); }
   showContextMenu(e, kind, data = null) {
     let items = [];
-    if (kind === 'item') { const it = this.editor.active; items = ['edit.cut', 'edit.copy', 'edit.paste', 'edit.delete', '-']; if (it?.kind === 'annot') items.push({ action: { label: 'Reply…', icon: 'comments', run: () => this.replyTo(it) } }, { action: { label: 'Open Pop-up Note', icon: 'stickynote', run: () => this.openNotePopup(it) } }, { label: 'Set Status', icon: 'check', items: ['None', 'Accepted', 'Rejected', 'Cancelled', 'Completed'].map(s => ({ action: { label: s, checked: () => (it.props.status || 'None') === s, run: () => this.doc.updateItem(it, { props: { status: s, statusBy: this.authorName() } }, 'Status') } })) }, '-'); if (it?.kind === 'object') items.push('edit.sendToBack', 'edit.sendBackward', 'edit.bringForward', 'edit.bringToFront', { label: 'Align Objects', icon: 'alignleft', items: ['edit.alignLeft', 'edit.alignRight', 'edit.alignTop', 'edit.alignBottom', 'edit.alignCenterH', 'edit.alignCenterV'] }, 'edit.fitToPage', '-'); if (it?.kind === 'object' && it.type === 'image') items.push({ action: { label: 'Save Image to File…', icon: 'save', run: () => this.saveImageOf(it) } }, { action: { label: 'Copy Image to Clipboard', icon: 'copy', run: () => this.copyImageOf(it) } }, '-'); if (it?.kind === 'field') items.push({ action: { label: 'Options…', icon: 'properties', run: () => this.showInspector() } }); else items.push({ action: { label: 'Options…', icon: 'properties', run: () => this.showInspector() } }); }
+    if (kind === 'item') { const it = this.editor.active; items = ['edit.cut', 'edit.copy', 'edit.paste', 'edit.delete', '-']; if (it?.kind === 'annot') items.push({ action: { label: 'Reply…', icon: 'comments', run: () => this.replyTo(it) } }, { action: { label: 'Open Pop-up Note', icon: 'stickynote', run: () => this.openNotePopup(it) } }, { label: 'Set Status', icon: 'check', items: ['None', 'Accepted', 'Rejected', 'Cancelled', 'Completed'].map(s => ({ action: { label: s, checked: () => (it.props.status || 'None') === s, run: () => this.doc.updateItem(it, { props: { status: s, statusBy: this.authorName() } }, 'Status') } })) }, '-'); if (it && this.editor.isEditMode()) items.push('edit.selectEnclosed', 'edit.moveToPage', 'edit.flowPrev', '-'); if (it?.kind === 'object') items.push('edit.sendToBack', 'edit.sendBackward', 'edit.bringForward', 'edit.bringToFront', { label: 'Align Objects', icon: 'alignleft', items: ['edit.alignLeft', 'edit.alignRight', 'edit.alignTop', 'edit.alignBottom', 'edit.alignCenterH', 'edit.alignCenterV'] }, 'edit.fitToPage', '-'); if (it?.kind === 'object' && it.type === 'image') items.push({ action: { label: 'Save Image to File…', icon: 'save', run: () => this.saveImageOf(it) } }, { action: { label: 'Copy Image to Clipboard', icon: 'copy', run: () => this.copyImageOf(it) } }, '-'); if (it?.kind === 'field') items.push({ action: { label: 'Options…', icon: 'properties', run: () => this.showInspector() } }); else items.push({ action: { label: 'Options…', icon: 'properties', run: () => this.showInspector() } }); }
     else if (kind === 'page') items = ['tools.editDoc', 'tools.editText', 'tools.editForms', 'tools.hand', 'tools.selectText', '-', 'edit.paste', 'edit.selectAll', '-', 'comments.note', 'objects.text', 'objects.image', '-', 'document.insertBlank', 'document.deletePages', 'document.rotateDialog', 'document.crop', '-', 'view.grid', 'view.snap', '-', 'file.properties'];
     else if (kind === 'thumb') items = ['document.insertBlank', 'document.insertPages', 'document.replacePages', 'document.deletePages', 'document.movePages', 'document.extract', '-', 'document.rotateCW', 'document.rotateCCW', 'document.rotate180', '-', 'document.crop', 'document.pageLayout', 'document.pageActions', '-', { action: { label: 'Enlarge Page Thumbnails', icon: 'zoomin', run: () => this.panels.setThumbSize(Math.min(260, this.panels.thumbSize + 30)) } }, { action: { label: 'Reduce Page Thumbnails', icon: 'zoomout', run: () => this.panels.setThumbSize(Math.max(60, this.panels.thumbSize - 30)) } }];
     else if (kind === 'bookmark') items = [{ action: { label: 'Create Bookmark', icon: 'plus', run: () => this.addBookmark(data) } }, { action: { label: 'Delete Bookmark', icon: 'delete', run: () => this.deleteBookmark(data) } }, { action: { label: 'Bookmark Properties…', icon: 'properties', run: () => this.bookmarkProperties(data) } }, '-', { action: { label: 'Set Destination', icon: 'pages', run: () => { this.doc.pushUndo('Set Destination'); data.page = this.viewer.current; data.url = null; data.top = null; this.panels.render(); } } }, { label: 'Set Zoom', icon: 'zoomin', items: [{ action: { label: 'Current Zoom', run: () => { this.doc.pushUndo('Set Zoom'); data.zoom = this.viewer.zoom; } } }, { action: { label: 'Disable Zoom', run: () => { this.doc.pushUndo('Set Zoom'); data.zoom = null; } } }] }];
@@ -140,7 +141,7 @@ export class App {
       if (inInput) return;
       if (e.key === 'Enter' && this.editor.poly) { this.editor.finishPoly(); e.preventDefault(); return; }
       const combo = (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + normKey(e);
-      if (this.editor.selection.length && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && !e.altKey) { const s = e.ctrlKey ? settings.editing.nudgeStepFine : settings.editing.nudgeStep; const d = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, s], ArrowDown: [0, -s] }[e.key]; this.editor.nudge(d[0], d[1]); e.preventDefault(); return; }
+      if (this.editor.selection.length && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && !e.altKey) { const s = e.ctrlKey ? settings.editing.nudgeStepFine : settings.editing.nudgeStep; const d = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, s], ArrowDown: [0, -s] }[e.key]; if (this.editor.selection.some(RL.isExact)) this.moveSelection(d[0], d[1]); else this.editor.nudge(d[0], d[1]); e.preventDefault(); return; }
       for (const a of Object.values(this.actions)) { if (!a.shortcut) continue; const sc = a.shortcut.replace('Del', 'Delete').replace('PgUp', 'PageUp').replace('PgDown', 'PageDown').replace('Ctrl+Shift+', 'Ctrl+Shift+'); if (matchShortcut(sc, combo)) { if (a.enabled && !a.enabled()) return; e.preventDefault(); this.run(a.id); return; } }
       if (this.doc && !e.ctrlKey && !e.altKey) { if (e.key === ' ' && this.tool !== 'hand') { this.spaceTool = this.tool; this.setTool('hand'); e.preventDefault(); } if (e.key === 'Delete' || e.key === 'Backspace') { if (this.editor.selection.length) { this.editor.delete(); e.preventDefault(); } } }
     });
@@ -154,7 +155,7 @@ export class App {
   goTo(i) { if (!this.doc) return; this.viewer.pushView(); this.viewer.goToPage(i); }
   findStep(dir) { if (!this.viewer.findMatches.length) { const q = $('#tb-search')?.value; if (q) { this.panels.show('search'); this.panels.searchInput.value = q; this.panels.runSearch(); } else this.panels.show('search'); return; } this.viewer.findGo(dir); }
   toggleFullscreen() { const on = !document.body.classList.contains('fullscreen'); document.body.classList.toggle('fullscreen', on); if (platform.isDesktop) platform.fullscreen(on); else if (on) { document.documentElement.requestFullscreen?.().catch(() => { }); $('body').append(el('div', { class: 'fs-hint', id: 'fs-hint', text: 'Press Esc or F11 to exit full screen' })); setTimeout(() => $('#fs-hint')?.remove(), 2500); } else if (!platform.isDesktop && document.fullscreenElement) document.exitFullscreen?.(); this.viewer.applyZoom(); }
-  onSelectionChange() { this.inspector.render(); this.updateStatus(); this.updateUI(); if (this.panels.current === 'comments' && this.panels.visible) { $$('.comment-row', this.panels.bodyEl).forEach(r => r.classList.remove('sel')); } }
+  onSelectionChange() { this.inspector.render(); this.updateStatus(); this.updateUI(); if (this.panels.current === 'objtree' && this.panels.visible) this.panels.markObjTree(); if (this.panels.current === 'comments' && this.panels.visible) { $$('.comment-row', this.panels.bodyEl).forEach(r => r.classList.remove('sel')); } }
   onItemsChanged() { this.updateUI(); this.updateStatus(); if (this.panels.visible && ['comments', 'objtree', 'attachments', 'signatures'].includes(this.panels.current)) this.panels.render(); }
   afterItemEdit(items) { const pages = new Set(items.map(i => this.doc.pageOf(i)?.index)); for (const p of pages) if (p != null) this.viewer.refreshPage(p); this.editor.updateHandles(); this.inspector.render(); this.updateStatus(); this.onItemsChanged(); }
   showInspector() { if (!this.inspector.visible) this.inspector.toggle(true); this.inspector.render(); }
@@ -216,6 +217,63 @@ export class App {
   applySettings() { document.body.style.setProperty('--doc-bg', settings.display.background); this.applyIconSize(); this.highlightFields = settings.forms.highlightFields; this.annotDefaults.color = settings.comments.color; this.viewer.refreshOverlays(); this.viewer.toggleGrid(this.viewer.grid); document.body.classList.toggle('dark', settings.appearance.theme === 'dark'); document.body.style.fontSize = settings.appearance.font === 'small' ? '12px' : settings.appearance.font === 'large' ? '14px' : ''; this.updateUI(); }
   // ---------------- pages ----------------
   async rotateSelectedPages(deg) { if (!this.doc) return; const idx = this.panels.pagesSelected(); await this.structural(() => ops.rotatePages(this.doc, idx, deg)); }
+  // ---------------- re-layout of page content (exact moves, cross-page, flow) ----------------
+  /** Runs one re-layout (see relayout.js) as an undoable step, then re-selects what moved. */
+  async relayout(label, build) {
+    const doc = this.doc; if (!doc || this._relayoutBusy) return null; this._relayoutBusy = true; this.busy(true, 'Working…');
+    try {
+      this.editor.commitInline(); const plan = await build(); if (!plan) return null;
+      const res = await RL.applyRelayout(doc, label, plan);
+      for (const i of res.touched) { await this.editor.ensureScanned(doc.pages[i]); this.viewer.refreshPage(i); }
+      const moved = RL.resolveTargets(doc, res.targets); const first = moved[0] && doc.pageOf(moved[0]);
+      if (first && first.index !== this.viewer.current && !this.isPageVisible(first.index)) this.viewer.goToPage(first.index);
+      this.editor.select(moved.filter(it => doc.pageOf(it) === first)); this.panels.refresh(); this.updateUI();
+      if (plan.notes?.length) this.flash(plan.notes.join(' '));
+      return res;
+    } catch (e) { this.error(e); return null; }
+    finally { this.busy(false); this._relayoutBusy = false; if (this._pendingNudge) { const [dx, dy] = this._pendingNudge; this._pendingNudge = null; this.moveSelection(dx, dy); } }
+  }
+  /** Deletes items; original page content is really removed from the PDF at once (undoable). */
+  deleteItems(items, label = items.length === 1 ? 'Delete' : `Delete ${items.length} objects`) { if (!items.length) return Promise.resolve(null); return this.relayout(label, () => RL.deletePlan(this.doc, items)); }
+  isPageVisible(i) { const w = this.viewer.wraps[i]; if (!w) return false; const r = w.getBoundingClientRect(), v = this.viewer.el.getBoundingClientRect(); return r.bottom > v.top && r.top < v.bottom; }
+  /** Moves the selection by (dx, dy) user units, onto page ``dst`` (index; default its own page). */
+  moveSelection(dx, dy, dst = null, { sx = 1, sy = 1, items = null } = {}) {
+    if (this._relayoutBusy) { const p = this._pendingNudge || [0, 0]; this._pendingNudge = [p[0] + dx, p[1] + dy]; return Promise.resolve(null); }
+    const sel = items || this.editor.selection.slice(); if (!sel.length) return Promise.resolve(null); const pm = this.doc.pageOf(sel[0]);
+    return this.relayout(dst != null && dst !== pm.index ? `Move to page ${dst + 1}` : 'Move', () => RL.movePlan(this.doc, pm, sel, dst ?? pm.index, dx, dy, { sx, sy }));
+  }
+  async selectEnclosed() {
+    const sel = this.editor.selection; if (!sel.length) return; const pm = this.doc.pageOf(sel[0]);
+    if (!EDIT_MODES.includes(this.tool) || this.tool !== 'editdoc') this.setTool('editdoc'); await this.editor.ensureScanned(pm);
+    const all = RL.enclosedItems(pm, sel, it => this.editor.bboxOf(it)); const added = all.length - sel.length; this.editor.select(all);
+    this.flash(added ? `Added ${added} object(s) inside the selection.` : 'Select a box (or another graphic) first; everything inside it is added.');
+  }
+  async moveToPageDialog() {
+    const sel = this.editor.selection.slice(); if (!sel.length) return; const pm = this.doc.pageOf(sel[0]);
+    const r = await this.dialogs.moveToPage(this.doc, pm.index); if (!r) return; const dst = this.doc.pages[r.page]; if (!dst) return;
+    await this.editor.ensureScanned(dst); const box = RL.union(sel.map(it => this.editor.bboxOf(it)));
+    const dy = r.position === 'below' ? RL.belowContentY(this.doc, dst, it => this.editor.bboxOf(it), sel) - box[3] : 0;
+    const res = await this.moveSelection(0, dy, r.page, { items: sel }); if (res) this.viewer.goToPage(r.page);
+  }
+  flowPlanner() {
+    const sel = this.editor.selection.slice(); if (!sel.length) throw new Error('Select the section first (for example its box, then Select Enclosed Content).');
+    const pm = this.doc.pageOf(sel[0]); const bboxOf = it => this.editor.bboxOf(it); const section = RL.enclosedItems(pm, sel, bboxOf);
+    return opts => RL.planFlow(this.doc, pm, section, bboxOf, opts);
+  }
+  async flowSelection({ spacing = null, gapBottom = null, closeBoxes = true, pullUp = true, plan = null } = {}) {
+    const sel = this.editor.selection; if (!sel.length) return null; const pm = this.doc.pageOf(sel[0]);
+    await this.editor.ensureScanned(pm); if (pm.index > 0) await this.editor.ensureScanned(this.doc.pages[pm.index - 1]);
+    let p = plan; try { p ||= this.flowPlanner()({ spacing, gapBottom }); } catch (e) { this.error(e); return null; }
+    const res = await this.relayout(`Flow to page ${pm.index}`, () => RL.flowRelayout(p, it => this.editor.bboxOf(it), { closeBoxes, pullUp }));
+    if (res) this.flash(p.cut == null ? `Section moved to page ${pm.index}.` : 'Section split across the page break.');
+    return res;
+  }
+  async flowDialog() {
+    const sel = this.editor.selection; if (!sel.length) return; const pm = this.doc.pageOf(sel[0]);
+    await this.editor.ensureScanned(pm); if (pm.index > 0) await this.editor.ensureScanned(this.doc.pages[pm.index - 1]);
+    let planner; try { planner = this.flowPlanner(); } catch (e) { this.error(e); return; }
+    const r = await this.dialogs.flowDialog(planner); if (r) await this.flowSelection(r);
+  }
   async movePages(indices, to, fromDialog = false) { if (!this.doc || !indices.length) return; await this.structural(() => ops.movePages(this.doc, indices, to)); this.panels.selectedPages = new Set(); }
   async extractPages() { const r = await this.dialogs.extractPages(this.doc); if (!r) return; try { this.busy(true, 'Extracting…'); const files = await ops.extractPages(this.doc, r.indices, { separate: r.separate, withBookmarks: r.bookmarks }); for (const f of files) download(f.bytes, f.name, 'application/pdf'); if (r.deleteAfter && r.indices.length < this.doc.pages.length) await ops.deletePages(this.doc, r.indices); this.viewer.setDoc(this.doc); this.panels.refresh(); } catch (e) { this.error(e); } finally { this.busy(false); } }
   async insertPages(file = null) { const r = await this.dialogs.insertPages(this.doc, file); if (!r) return; const f = r.file; const bytes = await this.fileToPdfBytes(f); const pages = r.srcPages ? parsePageRange(r.srcPages, 100000) : null; await this.structural(() => ops.insertFromBytes(this.doc, { bytes, index: r.index, pages })); if (r.bookmarks && /\.pdf$/i.test(f.name)) { try { const tmp = new PdfDoc({ name: f.name }); await tmp.load(bytes); const off = r.index; const shift = (nodes) => nodes.map(n => ({ ...n, id: uid('bm'), page: n.page != null ? n.page + off : null, children: shift(n.children || []) })); this.doc.outline.push(...shift(tmp.outline)); tmp.pdf?.destroy?.(); this.panels.refresh(); } catch { } } }
