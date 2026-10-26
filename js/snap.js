@@ -35,5 +35,8 @@ export function snapBox(box, targets, tol, axes = { x: true, y: true }) {
   return { ax, ay, gx: hx ? near(mx.map(m => m + ax), targets.xs) : [], gy: hy ? near(my.map(m => m + ay), targets.ys) : [] };
 }
 
+/** The target line nearest ``v`` within ``tol`` (or null). */
+export function snapValue(v, lines, tol) { let hit = null; for (const t of lines) { const d = t.v - v; if (Math.abs(d) <= tol && (hit === null || Math.abs(d) < Math.abs(hit - v))) hit = t.v; } return hit; }
+
 /** Snap tolerance in user units for the current zoom. */
 export function tolerance(zoom) { return Math.max(1, settings.editing.snapTolerance || 5) / Math.max(0.05, zoom); }

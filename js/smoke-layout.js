@@ -139,6 +139,29 @@ export async function runLayoutSmoke(app, step) {
   const landed = doc.pages[0].items.find(i => i.orig === 'text' && i.props.text === occText);
   check('layout.snapAcrossPages', landed && Math.abs(landed.rect[0] - 72) < 0.6 && sres.guides > 0, { x: landed?.rect[0], ...sres });
   if (landed) await app.undo();
+  // a single vector graphic snaps too: the box dragged to 1.2pt from the fields' left edge (x=200)
+  await app.editor.ensureScanned(doc.pages[1]); const vbox = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50); const vx0 = vbox.rect[0];
+  sres = await snapDrag(vbox, 200 - vx0 + 1.2, false); await app.editor.ensureScanned(doc.pages[1]); const vmoved = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[3] - i.rect[1] > 50 && i.rect[2] - i.rect[0] > 300);
+  check('layout.snapSingleVector', vmoved && Math.abs(vmoved.rect[0] - 200) < 0.6 && sres.guides > 0, { x: vmoved?.rect[0], ...sres });
+  if (vmoved && Math.abs(vmoved.rect[0] - vx0) > 0.5) await app.undo();
+  // Geometry in the Object Inspector moves/scales an original graphic exactly (it used to vanish)
+  await app.editor.ensureScanned(doc.pages[1]); const gbox = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50); app.editor.select([gbox]); app.inspector.render();
+  const geoInput = label => { const l = [...document.querySelectorAll('#inspector label, .inspector label, label')].find(x => x.textContent.trim() === label && x.nextElementSibling?.tagName === 'INPUT'); return l?.nextElementSibling; };
+  const setGeo = async (label, v) => { const i = geoInput(label); i.value = String(v); i.dispatchEvent(new Event('change')); for (let k = 0; k < 50 && (app._relayoutBusy || k < 2); k++) await new Promise(r => setTimeout(r, 100)); };
+  await setGeo('Left', 100); await app.editor.ensureScanned(doc.pages[1]); let gb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[3] - i.rect[1] > 50 && i.rect[2] - i.rect[0] > 300);
+  check('layout.geometryLeft', gb && Math.abs(gb.rect[0] - 100) < 0.6 && Math.abs(gb.rect[2] - gb.rect[0] - 475) < 1, { rect: gb?.rect.map(v => Math.round(v * 10) / 10) });
+  app.editor.select([gb]); app.inspector.render(); await setGeo('Width', 300); await app.editor.ensureScanned(doc.pages[1]); gb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[3] - i.rect[1] > 50 && i.rect[2] - i.rect[0] > 200);
+  const gsaved = await ops.saveBytes(doc, {}); const gd = new M.PdfDoc({ name: 'g.pdf' }); await gd.load(gsaved); const gs = await gd.scanPage(gd.pages[1]);
+  check('layout.geometryWidthSaved', gb && Math.abs(gb.rect[2] - gb.rect[0] - 300) < 1 && gs.vectors.some(v => Math.abs(v.rect[0] - 100) < 1 && Math.abs(v.rect[2] - v.rect[0] - 300) < 1.5), { rect: gb?.rect.map(Math.round) });
+  await app.undo(); await app.undo();
+  // resizing snaps too: the e-mail field's right edge dragged to ~1pt from the page centre lands on it
+  await app.editor.ensureScanned(doc.pages[1]); const rf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'email'); app.viewer.goToPage(1); await new Promise(r => setTimeout(r, 250)); app.editor.select([rf]);
+  const he = document.querySelector('.handles .h.e'); const capR = app.viewer.el.setPointerCapture; app.viewer.el.setPointerCapture = () => { };
+  const [hx, hy] = client(doc.pages[1], rf.rect[2], (rf.rect[1] + rf.rect[3]) / 2); const [qx, qy] = client(doc.pages[1], 298.5, (rf.rect[1] + rf.rect[3]) / 2);
+  const evR = (x, y) => ({ button: 0, clientX: x, clientY: y, target: he, pointerId: 1, ctrlKey: false, shiftKey: false, altKey: false, preventDefault() { }, stopPropagation() { } });
+  app.editor.startResize(evR(hx, hy), 'e'); app.editor.onMove(evR(qx, qy)); const rg = document.querySelectorAll('.snap-guide').length; app.editor.onUp(evR(qx, qy)); app.viewer.el.setPointerCapture = capR;
+  check('layout.snapResize', Math.abs(rf.rect[2] - 297.5) < 0.05 && rg > 0, { right: rf.rect[2], guides: rg });
+  await app.undo();
   // Object TreeView: Ctrl+click adds graphics and fields to one selection
   app.panels.openPages = new Set([1]); app.panels.openGroups = new Set(['1:Vector graphics', '1:Form fields']); app.setTool('hand'); app.panels.show('objtree'); await app.editor.ensureScanned(doc.pages[1], true); app.panels.render();
   const rows = app.panels.objRows; const vRow = rows.find(r => r.it.orig === 'vector'), fRows = rows.filter(r => r.it.kind === 'field');

@@ -2,6 +2,7 @@ import { el, $, $$, fromPt, toPt, fmtNum, evalExpr, rectNorm, clone, settings, s
 import { icon } from './icons.js';
 import { ANNOT_TYPES, OBJECT_TYPES, FIELD_TYPES, NOTE_ICONS, STAMPS, COMMENT_STATUS } from './model.js';
 import { noteIconSvg } from './noteicons.js';
+import { isExact } from './relayout.js';
 const FONTS = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Times-Roman', 'Times-Bold', 'Times-Italic', 'Courier', 'Courier-Bold', 'Arial', 'Verdana', 'Georgia', 'Symbol', 'ZapfDingbats'];
 export class Inspector {
   constructor(app) {
@@ -41,7 +42,10 @@ export class Inspector {
     const pageTop = (() => { const c = [[0, vp.height], [vp.width, vp.height], [0, 0], [vp.width, 0]].map(([x, y]) => vp.convertToPdfPoint(x, y)); return { left: Math.min(...c.map(p => p[0])), top: Math.max(...c.map(p => p[1])) }; })();
     const ref = this.coords === 'relative' && this.sel.length > 1 ? this.app.editor.bboxOf(this.app.editor.active) : null;
     const left = bb[0] - (ref ? ref[0] : pageTop.left), top = (ref ? ref[3] : pageTop.top) - bb[3], w = bb[2] - bb[0], h = bb[3] - bb[1];
-    const setBox = (nb) => { const snap = clone({ rect: it.rect, points: it.points, paths: it.paths, quads: it.quads }); this.doc.pushUndo('Geometry'); this.app.editor.applyBox(it, snap, bb, nb); if (it.orig) it.origModified = true; pm.renderVersion++; this.doc.emit('items'); this.app.afterItemEdit([it]); };
+    const setBox = (nb) => {
+      // original graphics and images (and text that is only repositioned) move/scale exactly in the PDF, like dragging
+      if (isExact(it)) { const sx = (nb[2] - nb[0]) / Math.max(1e-6, bb[2] - bb[0]), sy = (nb[3] - nb[1]) / Math.max(1e-6, bb[3] - bb[1]); const sized = Math.abs(sx - 1) > 1e-4 || Math.abs(sy - 1) > 1e-4; if (it.orig !== 'text' || !sized) { this.app.moveSelection(nb[0] - bb[0] * sx, nb[1] - bb[1] * sy, null, { sx, sy, items: [it] }); return; } }
+      const snap = clone({ rect: it.rect, points: it.points, paths: it.paths, quads: it.quads }); this.doc.pushUndo('Geometry'); this.app.editor.applyBox(it, snap, bb, nb); if (it.orig) it.origModified = true; pm.renderVersion++; this.doc.emit('items'); this.app.afterItemEdit([it]); };
     const lim = v => Math.max(-10000, Math.min(10000, v));
     return [
       this.row('Left', this.num(fromPt(left, u), v => { const nl = lim(toPt(v, u)) + (ref ? ref[0] : pageTop.left); setBox([nl, bb[1], nl + w, bb[3]]); }, { step: fromPt(1, u) })),
