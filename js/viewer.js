@@ -88,6 +88,13 @@ export class Viewer {
   prevView() { const d = this.doc; if (!d || d.viewIndex <= 0) return; if (d.viewIndex === d.viewHistory.length - 1) { this.pushView(); d.viewIndex--; } d.viewIndex--; this.restoreView(d.viewHistory[d.viewIndex]); }
   nextView() { const d = this.doc; if (!d || d.viewIndex >= d.viewHistory.length - 1) return; d.viewIndex++; this.restoreView(d.viewHistory[d.viewIndex]); }
 
+  /** Smart-guide lines (user-space x and y positions) across page ``pm`` while dragging. */
+  showGuides(pm, xs = [], ys = []) {
+    const w = this.wraps[pm.index]; if (!w || (!xs.length && !ys.length)) return; const v = pm.pdfPage.view;
+    const line = (a, b) => { const p = this.toViewport(pm, a[0], a[1]), q = this.toViewport(pm, b[0], b[1]); w.append(el('div', { class: 'snap-guide', style: { left: Math.round(Math.min(p[0], q[0])) + 'px', top: Math.round(Math.min(p[1], q[1])) + 'px', width: Math.max(1, Math.round(Math.abs(q[0] - p[0]))) + 'px', height: Math.max(1, Math.round(Math.abs(q[1] - p[1]))) + 'px' } })); };
+    for (const x of xs) line([x, v[1]], [x, v[3]]); for (const y of ys) line([v[0], y], [v[2], y]);
+  }
+  clearGuides() { for (const g of this.el.querySelectorAll('.snap-guide')) g.remove(); }
   /** A data URL of the rendered pixels under a user-space rect of a page (drag previews). */
   cropCanvas(pm, rect) { const w = this.wraps[pm.index]; const canvas = w?.firstChild; if (!canvas?.width || !w._vp) return null; const r = this.userRectToScreen(pm, rectNorm(rect)); const sc = canvas.width / w._vp.width; const sw = Math.max(1, Math.round((r[2] - r[0]) * sc)), sh = Math.max(1, Math.round((r[3] - r[1]) * sc)); if (sw * sh > 16e6) return null; const c = document.createElement('canvas'); c.width = sw; c.height = sh; try { c.getContext('2d').drawImage(canvas, r[0] * sc, r[1] * sc, sw, sh, 0, 0, sw, sh); return c.toDataURL(); } catch { return null; } }
   // coordinate helpers

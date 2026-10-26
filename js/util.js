@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS = {
   general: { author: 'User', openLastSession: false, recentCount: 10, showWelcome: true, confirmClose: true, restoreZoom: true },
   system: { autosaveMinutes: 5, backupOnSave: false, singleInstance: true, associateFiles: false },
   forms: { highlightFields: true, highlightColor: '#ccd7ff', autoCalculate: true, showFieldNames: false },
-  editing: { snapTolerance: 5, nudgeStep: 5, nudgeStepFine: 1, defaultFont: 'Helvetica', defaultFontSize: 12, textCover: '#ffffff' },
+  editing: { snapTolerance: 5, nudgeStep: 5, nudgeStepFine: 1, defaultFont: 'Helvetica', defaultFontSize: 12, textCover: '#ffffff', smartGuides: true },
   grid: { spacing: 36, subdivisions: 1, color: '#9ac7f2', offsetX: 0, offsetY: 0 },
   javascript: { enable: true, showConsoleOnError: false },
   comments: { author: '', showPopups: true, lineWidth: 1, opacity: 100, color: '#ffe100', fontSize: 12, showHidden: false },

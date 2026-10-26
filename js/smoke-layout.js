@@ -116,6 +116,29 @@ export async function runLayoutSmoke(app, step) {
   const coverRects = [...app.viewer.wraps[1].querySelectorAll('svg.overlay rect')].filter(r => r.getAttribute('fill') === settings.editing.textCover && !r.closest('[data-id]'));
   check('layout.moveOntoDeletedSpot', /Nationality:/.test(await mu.pageText(doc.bytes, 1)) && coverRects.length === 0, { covers: coverRects.length });
   await app.undo(); await app.undo(); check('layout.deleteUndo', /Postcode:/.test(await mu.pageText(doc.bytes, 1)));
+  // smart guides: a field dragged to ~1pt from the page's horizontal centre snaps onto it (guide shown);
+  // with Alt held it lands exactly where it was dropped
+  const snapDrag = async (it, ddx, alt, dstPage = 1) => {
+    app.viewer.goToPage(1); await new Promise(r => setTimeout(r, 250)); app.viewer.refreshOverlays(); app.editor.select([it]);
+    const nodeS = app.viewer.wraps[1].querySelector(`[data-id="${it.id}"]`); const cap2 = app.viewer.el.setPointerCapture; app.viewer.el.setPointerCapture = () => { };
+    const [sx, sy] = client(doc.pages[1], it.rect[0] + 5, it.rect[1] + 5); const [tx2, ty2] = client(doc.pages[dstPage], it.rect[0] + 5 + ddx, it.rect[1] + 5 + (dstPage === 1 ? 0 : 0));
+    const evS = (x, y, a = alt) => ({ button: 0, clientX: x, clientY: y, target: nodeS, pointerId: 1, ctrlKey: false, shiftKey: false, altKey: a, preventDefault() { }, stopPropagation() { } });
+    app.editor.onDown(evS(sx, sy, false)); app.editor.onMove(evS(sx + 4, sy)); app.editor.onMove(evS(tx2, ty2)); const guides = document.querySelectorAll('.snap-guide').length; if (!alt && dstPage === 1) await shot(app, 'guides'); const adj = app.editor.drag?.snapAdj?.slice();
+    app.editor.onUp(evS(tx2, ty2)); app.viewer.el.setPointerCapture = cap2; for (let k = 0; k < 50 && app._relayoutBusy; k++) await new Promise(r => setTimeout(r, 100));
+    return { guides, adj, left: document.querySelectorAll('.snap-guide').length };
+  };
+  await app.editor.ensureScanned(doc.pages[1]); const fEmail = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'email'); const x0 = fEmail.rect[0];
+  const centreTarget = 297.5 - (fEmail.rect[0] + fEmail.rect[2]) / 2; let sres = await snapDrag(fEmail, centreTarget + 1.2, false);
+  check('layout.snapToPageCentre', Math.abs((fEmail.rect[0] + fEmail.rect[2]) / 2 - 297.5) < 0.01 && sres.guides > 0 && sres.left === 0, { centre: (fEmail.rect[0] + fEmail.rect[2]) / 2, ...sres });
+  await app.undo(); const fE2 = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'email'); sres = await snapDrag(fE2, centreTarget + 1.2, true);
+  check('layout.altPlacesFreely', Math.abs(fE2.rect[0] - (x0 + centreTarget + 1.2)) < 0.6 && sres.guides === 0, { x: fE2.rect[0], want: x0 + centreTarget + 1.2, ...sres });
+  await app.undo();
+  // an original text run dragged onto page 1 snaps to the left edge of the text there (x = 72)
+  await app.editor.ensureScanned(doc.pages[0]); await app.editor.ensureScanned(doc.pages[1]); const occ = doc.pages[1].items.find(i => i.orig === 'text' && /^Occupation/.test(i.props.text));
+  const occText = occ.props.text; sres = await snapDrag(occ, 1.5, false, 0); await app.editor.ensureScanned(doc.pages[0]);
+  const landed = doc.pages[0].items.find(i => i.orig === 'text' && i.props.text === occText);
+  check('layout.snapAcrossPages', landed && Math.abs(landed.rect[0] - 72) < 0.6 && sres.guides > 0, { x: landed?.rect[0], ...sres });
+  if (landed) await app.undo();
   // Object TreeView: Ctrl+click adds graphics and fields to one selection
   app.panels.openPages = new Set([1]); app.panels.openGroups = new Set(['1:Vector graphics', '1:Form fields']); app.setTool('hand'); app.panels.show('objtree'); await app.editor.ensureScanned(doc.pages[1], true); app.panels.render();
   const rows = app.panels.objRows; const vRow = rows.find(r => r.it.orig === 'vector'), fRows = rows.filter(r => r.it.kind === 'field');

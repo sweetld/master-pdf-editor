@@ -141,6 +141,7 @@ svg.icon .y { fill: #f6d55c; stroke: #333; }
 .handles .rot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff; border: 1px solid #1b74d4; pointer-events: auto; cursor: grab; }
 .handles .rotline { position: absolute; width: 1px; background: #1b74d4; margin-left: -0.5px; }
 .handles .angle { position: absolute; background: #333; color: #fff; font-size: 11px; padding: 1px 4px; border-radius: 2px; white-space: nowrap; }
+.snap-guide { position: absolute; background: #e0218a; pointer-events: none; z-index: 6; }
 .rubber { position: absolute; border: 1px dashed #1b74d4; background: rgba(61,142,230,.12); pointer-events: none; }
 .inline-edit { position: absolute; border: 1px solid #1b74d4; background: rgba(255,255,255,.95); outline: none; resize: none; padding: 1px 2px; overflow: hidden; white-space: pre-wrap; z-index: 5; font-family: Helvetica, Arial, sans-serif; }
 .field-input { position: absolute; border: 0; background: transparent; padding: 0 2px; outline: none; font-family: Helvetica, Arial, sans-serif; }
