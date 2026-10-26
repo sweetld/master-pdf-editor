@@ -182,8 +182,8 @@ export async function runLayoutSmoke(app, step) {
   const afterSave = doc.undoStack.length; await app.undo(); const hfBack = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
   check('layout.undoAfterSave', afterSave > 0 && hfBack && Math.abs(hfBack.rect[0] - h0) < 0.01, { afterSave, x: hfBack?.rect[0], x0: h0 });
   // Ctrl+Z works while the selected object's Inspector field has keyboard focus (and wasn't edited)
-  await app.editor.ensureScanned(doc.pages[1]); const kf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); app.editor.select([kf]); app.editor.nudge(10, 0); app.editor.select([kf]); app.inspector.render();
-  const fi = [...document.querySelectorAll('input')].find(i => i.offsetParent && i.closest('#inspector, .inspector, [class*=insp]') && i.type === 'text'); fi?.focus();
+  await app.editor.ensureScanned(doc.pages[1]); const kf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); app.editor.select([kf]); app.editor.nudge(10, 0); app.editor.select([kf]); await new Promise(r => setTimeout(r, 400)); app.inspector.render(); await new Promise(r => setTimeout(r, 200));
+  const fi = [...document.querySelectorAll('input')].find(i => i.isConnected && i.offsetParent && i.closest('#inspector, .inspector, [class*=insp]') && i.type === 'text'); fi?.focus();
   const tgt = document.activeElement; tgt.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true })); await new Promise(r => setTimeout(r, 300));
   const kfNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
   check('layout.ctrlZFromInspectorField', tgt?.tagName === 'INPUT' && Math.abs(kfNow.rect[0] - h0) < 0.01, { focus: tgt?.tagName, x: kfNow.rect[0], x0: h0 });
