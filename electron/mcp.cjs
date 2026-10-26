@@ -68,10 +68,12 @@ function run({ launch = defaultLaunch } = {}) {
   process.stdin.on('end', () => process.exit(0));
 }
 
-/** Starts the app from a source checkout with the local Electron. */
+/** Starts the app: the app's own binary when it runs this file as Node (ELECTRON_RUN_AS_NODE, see
+ * master-pdf-editor-mcp), else the local Electron of a source checkout. */
 function defaultLaunch() {
-  const root = path.join(__dirname, '..'); let electron; try { electron = require(path.join(root, 'node_modules', 'electron')); } catch { throw new Error('Electron is not installed here; run the installed app with --mcp instead.'); }
-  const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+  const root = path.join(__dirname, '..'); const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+  if (process.versions.electron) { spawn(process.execPath, /app\.asar/.test(__dirname) ? [] : [root], { detached: true, stdio: 'ignore', env }).unref(); return; }
+  let electron; try { electron = require(path.join(root, 'node_modules', 'electron')); } catch { throw new Error('Electron is not installed here; run the installed app with --mcp instead.'); }
   spawn(electron, [root], { detached: true, stdio: 'ignore', env }).unref();
 }
 

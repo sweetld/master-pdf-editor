@@ -5,7 +5,7 @@ content removal and encryption; plain ES modules, no build step) with a built-in
 
 ## When the user asks you to view or edit a PDF
 
-Use the `master-pdf-editor` MCP tools (registered as `master-pdf-editor --mcp`), not ad-hoc scripts. They
+Use the `master-pdf-editor` MCP tools (registered as `master-pdf-editor-mcp`; `master-pdf-editor --mcp` elsewhere), not ad-hoc scripts. They
 drive the running app, so the user sees each change and can undo it:
 
 1. `open_pdf(path)`.

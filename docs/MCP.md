@@ -18,8 +18,10 @@ flowchart LR
 Installed app (Linux, after `npm run install:linux`):
 
 ```bash
-claude mcp add --scope user master-pdf-editor -- master-pdf-editor --mcp
+claude mcp add --scope user master-pdf-editor -- master-pdf-editor-mcp
 ```
+
+`master-pdf-editor-mcp` runs the server with the app's binary as plain Node (`ELECTRON_RUN_AS_NODE=1`), which uses about 100 MB. `master-pdf-editor --mcp` works too, but it starts a full Electron runtime (about 570 MB) for each agent session.
 
 From a source checkout (uses the checkout's Electron):
 

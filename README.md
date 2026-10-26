@@ -94,10 +94,10 @@ Existing comments and form fields are read from the file and are editable; savin
 The app has a built-in [MCP](https://modelcontextprotocol.io) server, so AI agents such as Claude Code can open, inspect and edit PDFs in the running app: you watch the changes happen and can undo them with Edit > Undo. Register it once:
 
 ```bash
-claude mcp add --scope user master-pdf-editor -- master-pdf-editor --mcp
+claude mcp add --scope user master-pdf-editor -- master-pdf-editor-mcp
 ```
 
-`master-pdf-editor --mcp` speaks MCP on stdin/stdout and starts the app if it isn't running. Its 40 tools cover rendering pages (exactly as they will be saved, optionally with element ids and a coordinate grid), page structure, finding and editing text, real deletion and exact moves of the original content (also onto another page), re-flowing a section into the gap at the bottom of the previous page, adding text, images, shapes and comments, forms and page operations. See [docs/MCP.md](docs/MCP.md) and the reference in [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
+`master-pdf-editor-mcp` (installed by `install-linux.sh`; on other platforms `master-pdf-editor --mcp`) speaks MCP on stdin/stdout and starts the app if it isn't running. Its 40 tools cover rendering pages (exactly as they will be saved, optionally with element ids and a coordinate grid), page structure, finding and editing text, real deletion and exact moves of the original content (also onto another page), re-flowing a section into the gap at the bottom of the previous page, adding text, images, shapes and comments, forms and page operations. See [docs/MCP.md](docs/MCP.md) and the reference in [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md).
 
 ## Limitations (honest list)
 
