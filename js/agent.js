@@ -303,6 +303,13 @@ const TOOLS = {
     if (fill !== undefined) props.fillColor = fill; if (width !== undefined) { if (it.kind === 'field') props.borderWidth = width; else props.lineWidth = width; } if (opacity !== undefined) props.opacity = opacity;
     if (font_size !== undefined) props.fontSize = font_size; if (text_color !== undefined) props[it.kind === 'object' ? 'color' : 'textColor'] = text_color; if (contents !== undefined) props.contents = contents;
     if (!Object.keys(props).length && !patch.rect) fail('Nothing to change.'); if (Object.keys(props).length) patch.props = props;
+    if (RL.isExact(it) && it.orig === 'vector') { // original graphics are restyled in the PDF itself (in place)
+      const style = {}; for (const k of ['color', 'fillColor', 'lineWidth', 'opacity']) if (k in props) style[k] = props[k] === 'none' ? null : props[k];
+      if (!Object.keys(style).length) fail(`${id} is an original graphic: only color, fill, width and opacity can be changed here.`);
+      if (doc !== this.app.doc) this.app.activate?.(doc); const res = await this.app.restyleVectors([it], style, 'Edit'); if (!res) fail('The change did not happen.');
+      for (const i of res.touched) await this.scan(doc.pages[i]); this.refresh(doc, res.touched); const nit = RL.resolveTargets(doc, res.targets)[0];
+      return { updated: nit ? this.describe(pm, nit) : null };
+    }
     doc.updateItem(it, patch, 'Edit'); this.refresh(doc, [pm.index]); return { updated: this.describe(pm, it) };
   },
 

@@ -244,6 +244,12 @@ export class App {
   }
   /** Deletes items; original page content is really removed from the PDF at once (undoable). */
   deleteItems(items, label = items.length === 1 ? 'Delete' : `Delete ${items.length} objects`) { if (!items.length) return Promise.resolve(null); return this.relayout(label, () => RL.deletePlan(this.doc, items)); }
+  /** Changes the colours / line width / line style / opacity of original vector graphics in the PDF. */
+  async restyleVectors(items, patch, label = 'Appearance') {
+    const doc = this.doc; if (!doc || !items.length || this._relayoutBusy) return null; this._relayoutBusy = true; this.busy(true, 'Working…');
+    try { const res = await RL.applyRestyle(doc, label, items, patch); for (const i of res.touched) { await this.editor.ensureScanned(doc.pages[i]); this.viewer.refreshPage(i); } this.editor.select(RL.resolveTargets(doc, res.targets)); this.panels.refresh(); this.updateUI(); return res; }
+    catch (e) { this.error(e); return null; } finally { this.busy(false); this._relayoutBusy = false; }
+  }
   isPageVisible(i) { const w = this.viewer.wraps[i]; if (!w) return false; const r = w.getBoundingClientRect(), v = this.viewer.el.getBoundingClientRect(); return r.bottom > v.top && r.top < v.bottom; }
   /** Moves the selection by (dx, dy) user units, onto page ``dst`` (index; default its own page). */
   moveSelection(dx, dy, dst = null, { sx = 1, sy = 1, items = null } = {}) {

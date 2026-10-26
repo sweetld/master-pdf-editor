@@ -242,7 +242,7 @@ Apply all redaction marks in the document: the content under them is permanently
 
 ### `update_element`
 
-Change an element's box or style: rect (move/resize an added object, field or annotation), color, fill, width (line width), opacity, font_size, text_color, contents (annotation text). For moving original page content use move_elements.
+Change an element's box or style: rect (move/resize an added object, field or annotation), color, fill, width (line width), opacity, font_size, text_color, contents (annotation text). For an original vector graphic, color/fill (null = none)/width/opacity are changed in the PDF itself, keeping its geometry and stacking order. For moving original page content use move_elements.
 
 | Parameter | Type | Description |
 |---|---|---|

@@ -33,6 +33,15 @@ async function fileCase(app, step, path) {
   const mu = await import('./mupdf-bridge.js'); const bytes = await window.native.readFile(path); const doc = await app.openBytes(bytes, path.split('/').pop()); app.setTool('editdoc');
   const [p1, p2] = doc.pages; await app.editor.ensureScanned(p1); await app.editor.ensureScanned(p2);
   const box = p2.items.filter(i => i.orig === 'vector' && !RL.isBackground(p2, i)).sort((a, b) => (b.rect[2] - b.rect[0]) * (b.rect[3] - b.rect[1]) - (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]))[0];
+  if (new URLSearchParams(location.search).get('mode') === 'restyle') { // thin filled shapes (browser-printed borders): recolour one
+    const thin = p2.items.filter(i => i.orig === 'vector' && /fill/i.test(i.props.paint) && (i.rect[2] - i.rect[0] < 2 || i.rect[3] - i.rect[1] < 2) && Math.max(i.rect[2] - i.rect[0], i.rect[3] - i.rect[1]) > 20);
+    const v = thin[0]; const before = { fill: v?.props.fillColor, lw: v?.props.lineWidth, sig: !!v?.props.pathSig };
+    const res = v ? await app.restyleVectors([v], { fillColor: '#ff0000' }, 'Fill') : null; await app.editor.ensureScanned(p2);
+    const after = p2.items.find(i => i.orig === 'vector' && v && i.rect.every((x, k) => Math.abs(x - v.rect[k]) < 0.6));
+    const MM = await mu.mupdf(); const d = MM.PDFDocument.openDocument(doc.bytes.slice(), 'application/pdf'); const pg = d.loadPage(1); const Z = 6; const pix = pg.toPixmap([Z, 0, 0, Z, 0, 0], MM.ColorSpace.DeviceRGB, false); const n = pix.getNumberOfComponents(), st = pix.getStride(), px = pix.getPixels();
+    const vp = p2.pdfPage.view; const cx = (v.rect[0] + v.rect[2]) / 2 * Z, cy = (vp[3] - (v.rect[1] + v.rect[3]) / 2) * Z; const o = Math.round(cy) * st + Math.round(cx) * n; const c = [px[o], px[o + 1], px[o + 2]]; d.destroy();
+    step('file.restyle', { ok: !!res && after?.props.fillColor === '#ff0000' && c[0] > 180 && c[1] < 90, candidates: thin.length, before, after: after?.props.fillColor, pixel: c, rect: v?.rect.map(Math.round) }); return;
+  }
   if (new URLSearchParams(location.search).get('mode') === 'box') { app.editor.select([box]); await app.selectEnclosed(); } else app.editor.select(p2.visibleItems().filter(i => app.editor.selectable(i) && !RL.isBackground(p2, i) && i.kind !== 'annot')); const sel = app.editor.selection.slice(); const texts = sel.filter(i => i.orig === 'text').map(i => i.props.text.trim()).filter(Boolean);
   const before1 = await mu.pageText(doc.bytes, 0); await shot(app, 'file-before');
   await app.moveSelection(0, -300, 0, { items: sel });
@@ -187,6 +196,22 @@ export async function runLayoutSmoke(app, step) {
   const tgt = document.activeElement; tgt.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true })); await new Promise(r => setTimeout(r, 300));
   const kfNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
   check('layout.ctrlZFromInspectorField', tgt?.tagName === 'INPUT' && Math.abs(kfNow.rect[0] - h0) < 0.01, { focus: tgt?.tagName, x: kfNow.rect[0], x0: h0 });
+  // Appearance of an original vector graphic is changed in the PDF itself, in place (stacking order kept)
+  const pixel = async (bytes, page, x, yTop) => { const MM = await mu.mupdf(); const d = MM.PDFDocument.openDocument(bytes.slice(), 'application/pdf'); try { const pg = d.loadPage(page); const pix = pg.toPixmap([1, 0, 0, 1, 0, 0], MM.ColorSpace.DeviceRGB, false); const n = pix.getNumberOfComponents(), st = pix.getStride(); const px = pix.getPixels(); const o = Math.round(yTop) * st + Math.round(x) * n; return [px[o], px[o + 1], px[o + 2]]; } finally { d.destroy(); } };
+  await app.editor.ensureScanned(doc.pages[1]); let sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  const nVec = doc.pages[1].items.filter(i => i.orig === 'vector').length; const H = 842, bTop = H - sb.rect[3], bLeft = sb.rect[0];
+  app.editor.select([sb]); app.inspector.render(); await setGeo('Line Width', 3); await app.editor.ensureScanned(doc.pages[1]); sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  check('layout.restyleLineWidth', sb && Math.abs(sb.props.lineWidth - 3) < 0.05, { lw: sb?.props.lineWidth });
+  await app.restyleVectors([sb], { color: '#ff0000' }, 'Color'); await app.editor.ensureScanned(doc.pages[1]); sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  const red = await pixel(doc.bytes, 1, bLeft + 100, bTop);
+  check('layout.restyleStroke', sb && sb.props.color === '#ff0000' && red[0] > 200 && red[1] < 60 && red[2] < 60, { color: sb?.props.color, px: red });
+  await app.restyleVectors([sb], { fillColor: '#ffff00' }, 'Fill'); await app.editor.ensureScanned(doc.pages[1]); sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  const lab = doc.pages[1].items.find(i => i.orig === 'text' && /^Full name/.test(i.props.text)); const inside = await pixel(doc.bytes, 1, sb.rect[0] + 300, H - (sb.rect[3] - 10)); let ink = 255 * 3; for (let x = lab.rect[0]; x < lab.rect[2]; x += 1) { const p = await pixel(doc.bytes, 1, x, H - (lab.rect[1] + lab.rect[3]) / 2); ink = Math.min(ink, p[0] + p[1] + p[2]); }
+  check('layout.restyleFillKeepsOrder', sb && sb.props.fillColor === '#ffff00' && inside[2] < 80 && inside[0] > 200 && ink < 200 && doc.pages[1].items.filter(i => i.orig === 'vector').length === nVec, { fill: sb?.props.fillColor, inside, textInk: ink, paint: sb?.props.paint });
+  await app.restyleVectors([sb], { color: null }, 'Color'); await app.editor.ensureScanned(doc.pages[1]); sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  check('layout.restyleNoStroke', sb && sb.props.color == null && /fill/i.test(sb.props.paint) && !/stroke/i.test(sb.props.paint), { paint: sb?.props.paint });
+  for (let k = 0; k < 4; k++) await app.undo(); await app.editor.ensureScanned(doc.pages[1]); sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
+  check('layout.restyleUndo', sb && sb.props.color && sb.props.color !== '#ff0000' && !sb.props.fillColor && Math.abs(sb.props.lineWidth - 1.5) < 0.05, { props: sb && { color: sb.props.color, fill: sb.props.fillColor, lw: sb.props.lineWidth } });
   // Object TreeView: Ctrl+click adds graphics and fields to one selection
   app.panels.openPages = new Set([1]); app.panels.openGroups = new Set(['1:Vector graphics', '1:Form fields']); app.setTool('hand'); app.panels.show('objtree'); await app.editor.ensureScanned(doc.pages[1], true); app.panels.render();
   const rows = app.panels.objRows; const vRow = rows.find(r => r.it.orig === 'vector'), fRows = rows.filter(r => r.it.kind === 'field');

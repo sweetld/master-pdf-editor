@@ -10,6 +10,7 @@
 import * as mu from './mupdf-bridge.js';
 import { toMuRect, libSave, lookupOrigAnnot, wrapContentInGraphicsState } from './pdfops.js';
 import { rectNorm, hexToRgb } from './util.js';
+import { restyle } from './vecstyle.js';
 const L = PDFLib;
 
 const CONTENT_ORIG = new Set(['text', 'image', 'vector']);
@@ -189,6 +190,26 @@ export async function applyRelayout(doc, label, plan) {
     doc.modified = true; doc.emit('items'); doc.emit('modified');
   } catch (e) { const u = doc.undoStack.pop(); if (u) await doc.restore(u.snap); throw e; }
   return { targets, touched: [...touched] };
+}
+
+/**
+ * Restyles original vector graphics of one page in the PDF itself (colours, line width/style,
+ * opacity): see vecstyle.js. One undoable step; returns selectors for the restyled graphics.
+ */
+export async function applyRestyle(doc, label, items, patch) {
+  const pm = doc.pageOf(items[0]); if (items.some(it => !it.props.pathSig || doc.pageOf(it) !== pm)) throw new Error('This graphic can only be restyled after the page is rescanned; click on an empty spot of the page and select it again.');
+  doc.pushUndo(label);
+  try {
+    let base = doc.bytes; if (doc.encrypted || doc.password) base = (await mu.decrypt(base, doc.password || '')).bytes;
+    const pdfDoc = await L.PDFDocument.load(base, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+    const targets = items.map(it => { const p = it.props; return { pathSig: p.pathSig, style: { color: p.color ?? null, fillColor: p.fillColor ?? null, lineWidth: p.lineWidth ?? 1, lineScale: p.lineScale || 1, lineStyle: p.lineStyle || 'solid', opacity: p.opacity ?? 1, ...patch } }; });
+    const n = restyle(pdfDoc, pm.index, targets);
+    if (n < items.length) throw new Error(n ? `Only ${n} of the ${items.length} graphics could be found in the page's drawing instructions; nothing was changed.` : "This graphic couldn't be found in the page's drawing instructions, so it can't be restyled.");
+    const bytes = await libSave(pdfDoc);
+    pm.items = pm.items.filter(it => !isExact(it)); doc.encrypted = false; doc.password = null; await doc.load(bytes, { keepPages: doc.pages.slice() });
+    pm.renderVersion++; doc.modified = true; doc.emit('items'); doc.emit('modified');
+  } catch (e) { const u = doc.undoStack.pop(); if (u) await doc.restore(u.snap); throw e; }
+  return { targets: items.map(it => ({ page: pm.index, orig: 'vector', rect: it.rect.slice() })), touched: [pm.index] };
 }
 
 /** Finds the items a re-layout's selectors point to (after the pages were rescanned). */

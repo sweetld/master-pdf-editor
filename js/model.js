@@ -137,7 +137,7 @@ export class PdfDoc {
       const ops = await pm.pdfPage.getOperatorList();
       // Graphics state: transform, line width, stroke colour and the clip of enclosing form XObjects
       // (content moved by the editor sits in clipped XObjects, so their bbox bounds what is visible).
-      const O = pdfjsLib.OPS; const stack = []; let gs = { ctm: [1, 0, 0, 1, 0, 0], lw: 1, stroke: '#000000', clip: null }; const pathSeen = new Map();
+      const O = pdfjsLib.OPS; const stack = []; let gs = { ctm: [1, 0, 0, 1, 0, 0], lw: 1, stroke: '#000000', fill: '#000000', clip: null }; const pathSeen = new Map(); const sigCount = new Map();
       const tx = { tm: [1, 0, 0, 1, 0, 0], lm: [1, 0, 0, 1, 0, 0], leading: 0 }; const textAt = [];
       for (let i = 0; i < ops.fnArray.length; i++) {
         const fn = ops.fnArray[i], args = ops.argsArray[i]; const ctm = gs.ctm, lw = gs.lw;
@@ -156,6 +156,7 @@ export class PdfDoc {
         else if (fn === O.setLineWidth) gs.lw = args[0];
         else if (fn === O.setGState) { for (const kv of args?.[0] || []) if (Array.isArray(kv) && kv[0] === 'LW' && typeof kv[1] === 'number') gs.lw = kv[1]; }
         else if (fn === O.setStrokeRGBColor) gs.stroke = opColorHex(args) || gs.stroke;
+        else if (fn === O.setFillRGBColor) gs.fill = opColorHex(args) || gs.fill;
         else if (fn === O.paintFormXObjectBegin) { stack.push({ ...gs }); if (args[0]) gs.ctm = mulMatrix(args[0], ctm); const bb = args[1]; if (Array.isArray(bb) || ArrayBuffer.isView(bb)) { const r = rectNormPts([[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]].map(([x, y]) => applyMatrix(gs.ctm, x, y))); gs.clip = gs.clip ? intersectRect(gs.clip, r) : r; } }
         else if (fn === O.paintFormXObjectEnd) gs = stack.pop() || gs;
         else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject || fn === O.paintImageMaskXObject || fn === O.paintImageXObjectRepeat) {
@@ -168,8 +169,11 @@ export class PdfDoc {
           if (Array.isArray(minMax) && minMax.length === 4 && isFinite(minMax[0])) { const pts = [[minMax[0], minMax[1]], [minMax[2], minMax[1]], [minMax[2], minMax[3]], [minMax[0], minMax[3]]].map(([x, y]) => applyMatrix(ctm, x, y)); rect = rectNormPts(pts); }
           else if (Array.isArray(args[1])) { const coords = args[1]; const pts = []; for (let k = 0; k + 1 < coords.length; k += 2) pts.push(applyMatrix(ctm, coords[k], coords[k + 1])); if (pts.length) rect = rectNormPts(pts); }
           if (rect && gs.clip) rect = intersectRect(gs.clip, rect);
+          // fingerprint of the path as written in the content stream (its operands and op count) plus its
+          // occurrence number, so js/vecstyle.js can find this exact path to restyle it in place
+          const paint0 = ops.fnArray[i + 1]; let pathSig = null; if (paint0 !== O.clip && paint0 !== O.eoClip && paint0 !== O.endPath && args[1] && typeof args[1].length === 'number') { const co = Array.from(args[1]); const sig = co.slice(0, 48).map(v => +v.toFixed(2)); const nops = args[0]?.length || 0; const sk = nops + ':' + co.length + ':' + sig.join(','); const k = sigCount.get(sk) || 0; sigCount.set(sk, k + 1); pathSig = { sig, nco: co.length, nops, k }; }
           if (rect && isFinite(rect[0]) && (rect[2] - rect[0] > 0.5 || rect[3] - rect[1] > 0.5)) { const paint = ops.fnArray[i + 1]; const key = rect.map(v => v.toFixed(1)).join(',');
-            if (!pathSeen.has(key) && paint !== O.clip && paint !== O.eoClip && paint !== O.endPath) { pathSeen.set(key, 1); const pn = paintName(paint, O); scan.vectors.push({ id: uid('v'), kind: 'object', type: 'vector', orig: 'vector', rect, rotation: 0, props: { paint: pn, lineWidth: +(lw * Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])) || lw).toFixed(3), ops: args[0]?.length || 0, stroke: /stroke/i.test(pn) ? gs.stroke : null, isRect: isRectPath(args, O) } }); } }
+            if (!pathSeen.has(key) && paint !== O.clip && paint !== O.eoClip && paint !== O.endPath) { pathSeen.set(key, 1); const pn = paintName(paint, O); scan.vectors.push({ id: uid('v'), kind: 'object', type: 'vector', orig: 'vector', rect, rotation: 0, props: { paint: pn, lineWidth: +(lw * Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])) || lw).toFixed(3), lineScale: Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])) || 1, ops: args[0]?.length || 0, stroke: /stroke/i.test(pn) ? gs.stroke : null, color: /stroke/i.test(pn) ? gs.stroke : null, fillColor: /fill/i.test(pn) ? gs.fill : null, opacity: 1, lineStyle: 'solid', pathSig, isRect: isRectPath(args, O) } }); } }
         }
       }
       // Drop text runs that are drawn only where a clip hides them (unmatched runs are kept).
