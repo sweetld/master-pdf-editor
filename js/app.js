@@ -139,7 +139,7 @@ export class App {
     document.addEventListener('change', e => { const t = e.target; if (t?.matches?.('input, textarea')) t._focusValue = t.value; }, true);
     document.addEventListener('keydown', e => {
       const t = e.target; const inInput = t.matches?.('input, textarea, select, [contenteditable]'); if (this.dialogs.stack.length) return;
-      if (e.key === 'Escape') { if (this.openMenu) { this.closeMenus(); return; } if (this.editor.poly) { this.editor.cancelPoly(); return; } if (this.editor.inline) { return; } if (!['hand', 'editdoc', 'edittext', 'editforms', 'editimages', 'editvector', 'selecttext'].includes(this.tool)) { this.setTool('hand'); return; } this.editor.select([]); this.closeNotePopup(); if (document.body.classList.contains('fullscreen')) this.toggleFullscreen(); return; }
+      if (e.key === 'Escape') { if (this.editor.cancelDrag()) { e.preventDefault(); return; } if (this.openMenu) { this.closeMenus(); return; } if (this.editor.poly) { this.editor.cancelPoly(); return; } if (this.editor.inline) { return; } if (!['hand', 'editdoc', 'edittext', 'editforms', 'editimages', 'editvector', 'selecttext'].includes(this.tool)) { this.setTool('hand'); return; } this.editor.select([]); this.closeNotePopup(); if (document.body.classList.contains('fullscreen')) this.toggleFullscreen(); return; }
       if (inInput) {
         // Undo/redo belong to the document unless the field has actually been edited (then the field's own undo applies);
         // this is what made Ctrl+Z do nothing while an object was selected and its Inspector field had focus

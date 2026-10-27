@@ -86,6 +86,14 @@ export class Editor {
     if (d.kind === 'rotate') { const w = this.viewer.wrapOf(pm); const r = w.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; let a = Math.atan2(sy - d.cy, sx - d.cx) * 180 / Math.PI + 90; let rot = -a + d.base; rot = ((rot % 360) + 360) % 360; if (rot > 180) rot -= 360; if (e.shiftKey) rot = Math.round(rot / 45) * 45; d.it.rotation = Math.round(rot); this.viewer.drawOverlay(w); this.updateHandles(); $('.handles')?.append(el('div', { class: 'angle', text: `${d.it.rotation}°`, style: { left: d.cx + 10 + 'px', top: d.cy - 40 + 'px' } })); this.app.statusGeometry(); return; }
     if (d.kind === 'point') { d.it.points[d.index] = this.smartPoint(pm, this.viewer.snapPoint([ux, uy]), e, [d.it]); if (d.it.type !== 'callout') d.it.rect = bboxOfPoints(d.it.points); this.viewer.drawOverlay(this.viewer.wrapOf(pm)); this.updateHandles(); return; }
   }
+  /** Escape mid-drag: put everything back as it was and forget the gesture; the pointer-up that follows does nothing. */
+  cancelDrag() {
+    const d = this.drag; if (!d) return false; this.drag = null; this.viewer.clearGuides(); d.el?.remove(); $('.handles .angle')?.remove();
+    if (d.kind === 'move') { this.viewer.ghosts = null; for (const { it, snap } of d.items) Object.assign(it, snap); }
+    else if (d.kind === 'resize' || d.kind === 'rotate' || d.kind === 'point') Object.assign(d.it, d.snap);
+    else if (d.kind === 'ink') { const ps = d.item.paths; ps.splice(ps.indexOf(d.path), 1); if (!ps.length) { /* the item was created for this stroke */ d.pm.items.splice(d.pm.items.indexOf(d.item), 1); this.doc.undoStack.pop(); this.inkItem = null; } }
+    if (d.pm) this.viewer.refreshPage(d.pm.index); this.updateHandles(); this.app.statusGeometry(); return true;
+  }
   onUp(e) {
     const d = this.drag; this.drag = null; if (!d) return; try { this.viewer.el.releasePointerCapture(e.pointerId); } catch { } this.viewer.clearGuides();
     if (d.kind === 'textsel') { if (MARKUP_TOOLS.has(this.tool)) this.createMarkupFromSelection(); return; }

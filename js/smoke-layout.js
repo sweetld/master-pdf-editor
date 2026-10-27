@@ -108,6 +108,14 @@ export async function runLayoutSmoke(app, step) {
   for (let k = 0; k < 50 && app._relayoutBusy !== false; k++) await new Promise(r => setTimeout(r, 100)); await new Promise(r => setTimeout(r, 200));
   fp = await fieldPages(doc.bytes); t1 = await mu.pageText(doc.bytes, 0);
   check('layout.dragToOtherPage', fp.telephone === 0 && /Telephone:/.test(t1) && !/Telephone:/.test(await mu.pageText(doc.bytes, 1)), { fieldPage: fp.telephone });
+  // Escape mid-drag forgets the move: the item goes back, nothing is written or added to undo, and the pointer-up does nothing
+  { await app.editor.ensureScanned(doc.pages[1]); const it = doc.pages[1].items.find(i => i.orig === 'text' && !i.deleted && i.props.text?.trim()); app.editor.select([it]); app.viewer.refreshOverlays();
+    const r0 = it.rect.slice(), u0 = doc.undoStack.length, b0 = doc.bytes; const n = app.viewer.wraps[1].querySelector(`[data-id="${it.id}"]`); const capE = app.viewer.el.setPointerCapture; app.viewer.el.setPointerCapture = () => { };
+    const [x0, y0] = client(doc.pages[1], it.rect[0] + 2, it.rect[1] + 3); const evE = (x, y) => ({ ...ev(x, y), target: n });
+    app.editor.onDown(evE(x0, y0)); app.editor.onMove(evE(x0 + 40, y0 + 30)); const mid = it.rect[0] - r0[0];
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); app.editor.onUp(evE(x0 + 40, y0 + 30)); app.viewer.el.setPointerCapture = capE;
+    for (let k = 0; k < 10 && app._relayoutBusy; k++) await new Promise(r => setTimeout(r, 100)); await new Promise(r => setTimeout(r, 300));
+    check('layout.escapeCancelsDrag', mid !== 0 && it.rect.every((v, k) => v === r0[k]) && doc.undoStack.length === u0 && doc.bytes === b0 && !app.editor.drag && app.editor.selection.includes(it), { mid, rect: it.rect, r0, undo: [u0, doc.undoStack.length] }); }
   await app.undo();
   // Alt+click cycles through what is stacked under the cursor (a text run, then the box behind it is not hit: only its outline)
   await app.editor.ensureScanned(doc.pages[1]); app.viewer.goToPage(1); await new Promise(r => setTimeout(r, 300)); app.viewer.refreshOverlays();
@@ -196,9 +204,10 @@ export async function runLayoutSmoke(app, step) {
   // Ctrl+Z works while the selected object's Inspector field has keyboard focus (and wasn't edited)
   await app.editor.ensureScanned(doc.pages[1]); const kf = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); app.editor.select([kf]); app.editor.nudge(10, 0); app.editor.select([kf]); await new Promise(r => setTimeout(r, 400)); app.inspector.render(); await new Promise(r => setTimeout(r, 200));
   const fi = [...document.querySelectorAll('input')].find(i => i.isConnected && i.offsetParent && i.closest('#inspector, .inspector, [class*=insp]') && i.type === 'text'); fi?.focus();
-  const tgt = document.activeElement; tgt.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true })); await new Promise(r => setTimeout(r, 300));
-  const kfNow = doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode');
-  check('layout.ctrlZFromInspectorField', tgt?.tagName === 'INPUT' && Math.abs(kfNow.rect[0] - h0) < 0.01, { focus: tgt?.tagName, x: kfNow.rect[0], x0: h0 });
+  const tgt = document.activeElement; tgt.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true, cancelable: true }));
+  // the undo is async (it may reload the document): wait for it rather than a fixed delay
+  const kfAt = () => doc.pages[1].items.find(i => i.kind === 'field' && i.props.name === 'postcode'); const tz = Date.now(); while (Date.now() - tz < 3000 && !(Math.abs((kfAt()?.rect[0] ?? 0) - h0) < 0.01)) await new Promise(r => setTimeout(r, 50));
+  const kfNow = kfAt(); check('layout.ctrlZFromInspectorField', tgt?.tagName === 'INPUT' && Math.abs(kfNow.rect[0] - h0) < 0.01, { focus: tgt?.tagName, x: kfNow.rect[0], x0: h0, ms: Date.now() - tz });
   // Appearance of an original vector graphic is changed in the PDF itself, in place (stacking order kept)
   const pixel = async (bytes, page, x, yTop) => { const MM = await mu.mupdf(); const d = MM.PDFDocument.openDocument(bytes.slice(), 'application/pdf'); try { const pg = d.loadPage(page); const pix = pg.toPixmap([1, 0, 0, 1, 0, 0], MM.ColorSpace.DeviceRGB, false); const n = pix.getNumberOfComponents(), st = pix.getStride(); const px = pix.getPixels(); const o = Math.round(yTop) * st + Math.round(x) * n; return [px[o], px[o + 1], px[o + 2]]; } finally { d.destroy(); } };
   await app.editor.ensureScanned(doc.pages[1]); let sb = doc.pages[1].items.find(i => i.orig === 'vector' && i.rect[2] - i.rect[0] > 400 && i.rect[3] - i.rect[1] > 50);
