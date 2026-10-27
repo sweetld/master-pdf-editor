@@ -128,7 +128,7 @@ export class Agent {
   async baked(doc) {
     const gen = this.gens.get(doc) || 0; const c = this.renderCache.get(doc);
     if (c && c.gen === gen && c.undo === doc.undoStack.length) return c.pdf;
-    const bytes = await ops.saveBytes(doc, {}); const pdf = await pdfjsLib.getDocument({ data: bytes, cMapUrl: CMAP_URL, cMapPacked: true, standardFontDataUrl: FONT_URL, isEvalSupported: false }).promise;
+    const bytes = await ops.saveBytes(doc, { compact: false }); const pdf = await pdfjsLib.getDocument({ data: bytes, cMapUrl: CMAP_URL, cMapPacked: true, standardFontDataUrl: FONT_URL, isEvalSupported: false }).promise;
     c?.pdf?.destroy?.(); this.renderCache.set(doc, { gen, undo: doc.undoStack.length, pdf }); return pdf;
   }
   docSummary(doc) { return { id: doc.id, name: doc.name, path: doc.path || null, pages: doc.pages.length, modified: !!doc.modified, active: doc === this.app.doc }; }
@@ -408,7 +408,7 @@ const TOOLS = {
     return { inserted: Array.from({ length: count }, (_, k) => at + k + 1), pages: doc.pages.length };
   },
   async duplicate_page({ doc: ref, page, copies = 1 }) {
-    const doc = this.doc(ref); const pm = this.page(doc, page); const bytes = await ops.saveBytes(doc, {});
+    const doc = this.doc(ref); const pm = this.page(doc, page); const bytes = await ops.saveBytes(doc, { compact: false });
     await this.structural(doc, () => ops.insertFromBytes(doc, { bytes, index: pm.index + 1, pages: Array(copies).fill(pm.index) }));
     return { copies: Array.from({ length: copies }, (_, k) => page + k + 1), pages: doc.pages.length };
   },

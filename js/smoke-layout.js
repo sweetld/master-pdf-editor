@@ -120,6 +120,9 @@ export async function runLayoutSmoke(app, step) {
   app.editor.select([pc]); await app.editor.delete();
   const covers = doc.pages[1].items.filter(i => i.deleted && i.kind === 'object' && i.orig).length; t2 = await mu.pageText(doc.bytes, 1);
   check('layout.deleteIsReal', !/Postcode:/.test(t2) && covers === 0, { covers, stillThere: /Postcode:/.test(t2) });
+  // saving drops the spent redaction annotations the removal leaves behind, so files don't grow with each edit
+  { const latin = b => new TextDecoder('latin1').decode(b); const before = latin(doc.bytes).split('/Redact').length - 1; const after = latin(await ops.saveBytes(doc, {})).split('/Redact').length - 1;
+    check('layout.saveCompacts', after === 0, { before, after }); }
   await app.editor.ensureScanned(doc.pages[1]); const nat = doc.pages[1].items.find(i => i.orig === 'text' && /^Nationality/.test(i.props.text));
   await app.moveSelection(pc.rect[0] - nat.rect[0], pc.rect[1] - nat.rect[1], null, { items: [nat] }); app.viewer.refreshOverlays();
   const coverRects = [...app.viewer.wraps[1].querySelectorAll('svg.overlay rect')].filter(r => r.getAttribute('fill') === settings.editing.textCover && !r.closest('[data-id]'));

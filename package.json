@@ -1,6 +1,6 @@
 {
   "name": "master-pdf-editor-replica",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "main": "electron/main.cjs",
   "scripts": {
     "start": "electron .",

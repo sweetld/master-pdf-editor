@@ -273,10 +273,11 @@ export async function bake(doc, { flattenAnnots = false, includeAnnots = true, i
   writeOutline(pdfDoc, doc.outline); writeAttachments(pdfDoc, doc); writeJavaScript(pdfDoc, doc); writeMetadata(pdfDoc, doc);
   return pdfDoc;
 }
+/** compact (default on) drops unreferenced objects (e.g. spent redaction annotations) and compresses streams, so files don't grow with every edit; pass false for throwaway renders. */
 export async function saveBytes(doc, opts = {}) {
   const pdfDoc = await bake(doc, opts); let bytes = await libSave(pdfDoc, { useObjectStreams: false });
   const haveMu = await mu.available();
-  if (opts.objectStreams && haveMu) { try { bytes = await mu.compact(bytes, { objectStreams: true }); } catch (e) { console.warn('compact failed', e); } }
+  if ((opts.compact !== false || opts.objectStreams) && haveMu) { try { bytes = await mu.compact(bytes, { objectStreams: !!opts.objectStreams }); } catch (e) { console.warn('compact failed', e); } }
   if (opts.security?.enabled) bytes = haveMu ? await mu.encrypt(bytes, opts.security) : await encryptPdf(bytes, opts.security);
   return bytes;
 }
