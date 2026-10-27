@@ -220,6 +220,15 @@ export async function runLayoutSmoke(app, step) {
   const rows = app.panels.objRows; const vRow = rows.find(r => r.it.orig === 'vector'), fRows = rows.filter(r => r.it.kind === 'field');
   vRow.row.dispatchEvent(new MouseEvent('click', { bubbles: true })); fRows[0].row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); fRows[1].row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
   check('layout.treeMultiSelect', app.editor.selection.length === 3 && app.tool === 'editdoc' && rows.filter(r => r.row.classList.contains('sel')).length === 3, { tool: app.tool, n: app.editor.selection.length });
+  // zooming keeps the page point under the mouse (Ctrl+wheel) or the view centre where it was
+  { const v = app.viewer; v.setLayout('continuous'); v.setZoom(1.5); v.goToPage(doc.pages.length - 1, { top: 200 }); await new Promise(r => requestAnimationFrame(r));
+    const cr = v.el.getBoundingClientRect(); const at = { clientX: cr.left + v.el.clientWidth * 0.3, clientY: cr.top + v.el.clientHeight * 0.6 };
+    // how far (px) the anchored page point now is from where it was on screen; x only counts when the page can scroll sideways
+    const drift = a => { const r = a.w.getBoundingClientRect(), c = v.el.getBoundingClientRect(); return [v.el.scrollWidth > v.el.clientWidth ? Math.round(r.left + a.fx * r.width - c.left - a.vx) : 0, Math.round(r.top + a.fy * r.height - c.top - a.vy)]; };
+    const a0 = v.anchorAt(at); v.el.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: 100, ctrlKey: true, bubbles: true, cancelable: true })); const z1 = v.zoom, d1 = drift(a0);
+    // per step: a horizontal scrollbar appearing moves the view centre, and the next step anchors on the new one
+    const d2 = []; for (let k = 0; k < 2; k++) { const c = v.anchorAt(); v.zoomBy(1); d2.push(...drift(c)); }
+    check('layout.zoomKeepsPlace', z1 < 1.5 && v.zoom === 2 && [...d1, ...d2].every(d => Math.abs(d) <= 1), { z1, z: v.zoom, wheel: d1, centre: d2 }); }
   doc.modified = false; await app.closeDoc(doc);
   return ok;
 }

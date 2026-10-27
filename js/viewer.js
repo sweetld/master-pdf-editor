@@ -9,7 +9,7 @@ export class Viewer {
     this.el = container; this.pagesEl = $('#pages', container); this.app = app; this.doc = null; this.zoom = 1; this.zoomMode = settings.display.defaultZoom; this.layout = settings.display.defaultLayout; this.coverFirst = true;
     this.viewRotation = 0; this.current = 0; this.grid = false; this.snap = false; this.replaceColors = settings.display.replaceColors; this.wraps = []; this.findMatches = []; this.findIndex = -1; this.findQuery = ''; this.listeners = {};
     this.io = new IntersectionObserver(entries => { for (const e of entries) { const w = e.target; w._visible = e.isIntersecting; if (e.isIntersecting) this.renderWrap(w); } }, { root: container, rootMargin: '300px 0px' });
-    container.addEventListener('scroll', () => this.onScroll()); this.ro = new ResizeObserver(() => { if (this.zoomMode !== 'custom') this.applyZoom(); }); this.ro.observe(container);
+    container.addEventListener('scroll', () => this.onScroll()); this.ro = new ResizeObserver(() => { if (this.zoomMode === 'custom') return; cancelAnimationFrame(this.roFrame); this.roFrame = requestAnimationFrame(() => this.applyZoom({ keepCenter: true })); }); this.ro.observe(container);
     container.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); this.zoomBy(e.deltaY < 0 ? 1 : -1, { clientX: e.clientX, clientY: e.clientY }); } }, { passive: false });
     this.scrollTimer = null;
   }
@@ -40,14 +40,24 @@ export class Viewer {
     if (!this.doc?.pages.length) return 1; const pm = this.doc.pages[this.current] || this.doc.pages[0]; const vp = this.viewportFor(pm, 1); const pad = 20 + 4; const cw = this.el.clientWidth - pad, ch = this.el.clientHeight - pad - (this.layout === 'continuous' || this.layout === 'facing-continuous' ? 0 : 0); const cols = this.layout.startsWith('facing') ? 2 : 1; const maxW = this.layout.startsWith('facing') ? Math.max(...this.doc.pages.map(p => this.viewportFor(p, 1).width)) : vp.width; const w = (cw - (cols - 1) * 10) / (cols * maxW);
     if (mode === 'fitwidth') return clamp(w, 0.05, 64); const h = ch / vp.height; return clamp(Math.min(w, h), 0.05, 64);
   }
-  applyZoom({ keepCenter = false } = {}) {
-    if (!this.doc) return; const old = this.zoom; const ratio = { x: this.el.scrollLeft + this.el.clientWidth / 2, y: this.el.scrollTop + this.el.clientHeight / 2 };
+  /** keepCenter keeps the page point under `at` ({clientX, clientY}; default the view centre) where it is on screen. */
+  applyZoom({ keepCenter = false, at = null } = {}) {
+    if (!this.doc) return; const anchor = keepCenter ? this.anchorAt(at) : null;
     this.zoom = this.zoomMode === 'fitpage' || this.zoomMode === 'fitwidth' ? this.fitZoom(this.zoomMode) : this.zoom; this.layoutPages();
-    if (keepCenter && old) { const k = this.zoom / old; this.el.scrollLeft = ratio.x * k - this.el.clientWidth / 2; this.el.scrollTop = ratio.y * k - this.el.clientHeight / 2; }
+    if (anchor) this.restoreAnchor(anchor);
     for (const w of this.wraps) { w._version = -1; if (w._visible) this.renderWrap(w); } this.emit('zoom'); this.rememberView();
   }
-  setZoom(z, mode = 'custom') { this.zoomMode = mode; if (mode === 'custom') this.zoom = clamp(z, 0.05, 64); this.applyZoom({ keepCenter: true }); }
-  zoomBy(dir) { const z = this.zoom; let nz = dir > 0 ? ZOOM_STEPS.find(s => s > z + 0.001) : [...ZOOM_STEPS].reverse().find(s => s < z - 0.001); this.setZoom(nz ?? (dir > 0 ? z * 1.25 : z / 1.25)); }
+  // The gaps and padding between pages don't scale with zoom, so scaling the scroll offset drifts by a
+  // page or more in long documents; anchor to a point within the nearest page instead.
+  anchorAt(at) {
+    const cr = this.el.getBoundingClientRect(); const cx = at?.clientX ?? cr.left + this.el.clientWidth / 2, cy = at?.clientY ?? cr.top + this.el.clientHeight / 2;
+    let best = null, bd = Infinity;
+    for (const w of this.wraps) { const r = w.getBoundingClientRect(); if (!r.width) continue; const dx = Math.max(r.left - cx, 0, cx - r.right), dy = Math.max(r.top - cy, 0, cy - r.bottom), d = dx * dx + dy * dy; if (d < bd) { bd = d; best = { w, r }; if (!d) break; } }
+    return best && { w: best.w, fx: (cx - best.r.left) / best.r.width, fy: (cy - best.r.top) / best.r.height, vx: cx - cr.left, vy: cy - cr.top };
+  }
+  restoreAnchor(a) { const cr = this.el.getBoundingClientRect(), r = a.w.getBoundingClientRect(); this.el.scrollLeft += r.left + a.fx * r.width - cr.left - a.vx; this.el.scrollTop += r.top + a.fy * r.height - cr.top - a.vy; }
+  setZoom(z, mode = 'custom', at = null) { this.zoomMode = mode; if (mode === 'custom') this.zoom = clamp(z, 0.05, 64); this.applyZoom({ keepCenter: true, at }); }
+  zoomBy(dir, at = null) { const z = this.zoom; let nz = dir > 0 ? ZOOM_STEPS.find(s => s > z + 0.001) : [...ZOOM_STEPS].reverse().find(s => s < z - 0.001); this.setZoom(nz ?? (dir > 0 ? z * 1.25 : z / 1.25), 'custom', at); }
   setLayout(layout) { this.layout = layout; this.rebuild(); this.applyZoom(); this.goToPage(this.current, { force: true }); }
   setViewRotation(deg) { this.viewRotation = ((this.viewRotation + deg) % 360 + 360) % 360; this.layoutPages(); this.applyZoom(); }
   toggleGrid(on = !this.grid) { this.grid = on; for (const w of this.wraps) this.drawGrid(w); this.emit('view'); }

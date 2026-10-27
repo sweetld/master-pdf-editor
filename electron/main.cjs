@@ -13,10 +13,28 @@ const argFiles = (argv) => argv.slice(1).filter(a => !a.startsWith('-') && /\.(p
 if (!MCP_MODE && !app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', (_e, argv) => { const files = argFiles(argv); if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); if (files.length) mainWindow.webContents.send('open-files', files); } else pendingFiles.push(...files); });
 app.on('open-file', (e, p) => { e.preventDefault(); if (mainWindow) mainWindow.webContents.send('open-files', [p]); else pendingFiles.push(p); });
+// The window reopens where and how big it last was (smoke/screenshot runs neither read nor write this).
+const TRANSIENT = process.argv.includes('--smoke') || process.argv.some(a => a.startsWith('--screenshot='));
+const winStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
+function loadWinState() {
+  if (TRANSIENT) return {}; let s; try { s = JSON.parse(fs.readFileSync(winStateFile(), 'utf8')); } catch { return {}; }
+  const b = s?.bounds; if (!(b?.width >= 900 && b?.height >= 600)) return {};
+  // a position on a monitor that is no longer attached is dropped (the size is kept)
+  const onScreen = require('electron').screen.getAllDisplays().some(({ workArea: a }) => b.x < a.x + a.width - 100 && b.x + b.width > a.x + 100 && b.y >= a.y - 20 && b.y < a.y + a.height - 100);
+  return { bounds: onScreen ? b : { width: b.width, height: b.height }, maximized: !!s.maximized };
+}
+function trackWinState(win) {
+  // the un-maximised bounds are tracked here: on Linux getNormalBounds() returns the maximised ones
+  if (TRANSIENT) return; let t = null, normal = win.getBounds();
+  const save = () => { clearTimeout(t); if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return; const maximized = win.isMaximized(); if (!maximized) normal = win.getBounds(); try { fs.writeFileSync(winStateFile(), JSON.stringify({ bounds: normal, maximized })); } catch {} };
+  for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, () => { clearTimeout(t); t = setTimeout(save, 400); });
+  win.on('close', save);
+}
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1440, height: 920, minWidth: 900, minHeight: 600, title: 'Master PDF Editor', icon: path.join(ROOT, 'icon.png'), backgroundColor: '#efefef', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, nodeIntegration: false, spellcheck: true } });
+  const st = loadWinState();
+  mainWindow = new BrowserWindow({ width: 1440, height: 920, ...st.bounds, minWidth: 900, minHeight: 600, title: 'Master PDF Editor', icon: path.join(ROOT, 'icon.png'), backgroundColor: '#efefef', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, nodeIntegration: false, spellcheck: true } });
   Menu.setApplicationMenu(null);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => { if (st.maximized) mainWindow.maximize(); mainWindow.show(); }); trackWinState(mainWindow);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   mainWindow.on('close', (e) => { if (mainWindow._allowClose) return; e.preventDefault(); mainWindow.webContents.send('request-close'); });
   mainWindow.on('closed', () => { mainWindow = null; });
